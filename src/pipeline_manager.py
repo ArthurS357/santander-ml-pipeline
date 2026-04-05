@@ -77,7 +77,7 @@ def schedule_pipeline(demo_mode: bool = False):
         logger.info("Modo DEMO ativo: pipeline agendada para cada 1 minuto.")
         schedule.every(1).minutes.do(orchestrator.run_pipeline)
     else:
-        # Produção: executa a cada 24 horas
+        # Modo produção: executa a cada 24 horas
         logger.info("Modo PRODUÇÃO: pipeline agendada para cada 24 horas.")
         schedule.every(24).hours.do(orchestrator.run_pipeline)
 
@@ -91,5 +91,14 @@ def schedule_pipeline(demo_mode: bool = False):
 
 if __name__ == "__main__":
     import sys
-    demo = "--demo" in sys.argv
-    schedule_pipeline(demo_mode=demo)
+    args = sys.argv[1:]
+
+    if "--demo" in args or "--schedule" in args:
+        # Modos interativos: entram no loop de agendamento (uso local/produção)
+        demo = "--demo" in args
+        schedule_pipeline(demo_mode=demo)
+    else:
+        # Modo CI/CD: executa o pipeline uma única vez e encerra
+        logger.info("Modo CI: execução única do pipeline.")
+        orchestrator = MLPipelineOrchestrator()
+        orchestrator.run_pipeline()
