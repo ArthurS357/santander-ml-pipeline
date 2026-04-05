@@ -1,135 +1,421 @@
-# 🏦 Santander Academia - Machine Learning Engineering Case
+<div align="center">
 
-Este repositório contém a solução completa para o case de certificação em Engenharia de Machine Learning. A solução abrange desde a ingestão de dados até a implantação de uma API produtiva com monitoramento em tempo real, orquestração de pipelines e versionamento de modelos.
+# Santander ML Pipeline
+### Case de Certificação — Academia Santander · Engenharia de Machine Learning
+
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![MLflow](https://img.shields.io/badge/MLflow-3.10-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![CI/CD](https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-Métricas-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![SQLite](https://img.shields.io/badge/SQLite-Persistência-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+
+<br/>
+
+> Pipeline completo de MLOps — da ingestão de dados brutos à API em produção com monitoramento em tempo real, orquestração agendável e versionamento de modelos.
+
+</div>
 
 ---
 
-## 📋 I. Objetivo do Case
+## Sumário
 
-Desenvolver uma infraestrutura robusta de MLOps para o dataset **Pima Indians Diabetes**, permitindo:
-- **Treinamento Automatizado**: Comparação de diferentes algoritmos (Random Forest, Logistic Regression, SVM).
-- **Rastreabilidade**: Gerenciamento de artefatos e métricas via MLflow.
-- **Persistência**: Registro histórico de execuções em banco de dados SQLite (PoC para SQL/NoSQL de larga escala).
-- **Orquestração**: Pipeline agendável para processamento end-to-end.
-- **Observabilidade**: Monitoramento de performance da API em tempo real.
-- **Escalabilidade**: Arquitetura conteinerizada pronta para nuvem.
+- [I. Objetivo do Case](#-i-objetivo-do-case)
+- [II. Arquitetura de Solução](#-ii-arquitetura-de-solução)
+- [III. Plano de Implementação e Reprodução](#-iii-plano-de-implementação-e-reprodução)
+- [IV. Melhorias e Considerações Finais](#-iv-melhorias-e-considerações-finais)
 
 ---
 
-## 🏗️ II. Arquitetura da Solução
+## 🎯 I. Objetivo do Case
 
-### Arquitetura de Solução (Fluxo de Dados — DAG)
+Este projeto implementa uma solução completa de **MLOps (Machine Learning Operations)** como resposta ao case de certificação da **Academia Santander**. O domínio escolhido é **saúde pública**: a previsão de ocorrência de diabetes utilizando o dataset *Pima Indians Diabetes* (768 pacientes, 8 features clínicas), expondo o resultado via API REST de baixa latência.
+
+O objetivo não é apenas construir um modelo — é construir a **infraestrutura que gerencia o ciclo de vida inteiro do modelo**, cobrindo todos os seis pilares mandatórios do edital:
+
+| Pilar | Requisito do Edital | Implementação |
+|---|---|---|
+| **Treinamento** | Múltiplos algoritmos com comparação de desempenho | RF, Logistic Regression e SVM treinados simultaneamente |
+| **CI/CD** | Integração e deploy contínuos automáticos | GitHub Actions em push ao `main` |
+| **Orquestração** | Fluxo completo com agendamento de pipelines | `MLPipelineOrchestrator` com DAG sequencial + `schedule` |
+| **Gerenciamento de Artefatos** | Versionamento de modelos e métricas | MLflow Tracking + **Model Registry** com versões incrementais |
+| **Observabilidade** | Métricas de desempenho em tempo real | Prometheus via `/metrics` + logging estruturado |
+| **Escalabilidade** | Dimensionamento horizontal dos recursos | Docker (base para Kubernetes) + GitHub Actions |
+
+---
+
+## 🏗️ II. Arquitetura de Solução
+
+### 2.1 Visão Conceitual — Fluxo de Dados (DAG)
+
+O pipeline é estruturado como um **DAG (Directed Acyclic Graph) sequencial**: cada etapa só é executada se a anterior for concluída com sucesso. Uma falha em qualquer ponto interrompe o pipeline, prevenindo que dados desatualizados alimentem um novo treinamento.
 
 ```mermaid
-graph TD
-    A[🌐 Fonte Externa CSV] -->|HTTP Download| B[data_ingestion.py]
-    B -->|data/raw/| C[preprocessing.py]
-    C -->|data/processed/| D[train.py]
-    D -->|3x algoritmos RF/LR/SVM| E{Comparação de Modelos}
-    E -->|Melhor modelo| F[MLflow Model Registry\nDiabetesClassifier v1,v2...]
-    E -->|Todos os runs| G[(SQLite\ntraining_history.db)]
-    F -->|load_latest_model| H[FastAPI :8000]
-    H -->|POST /predict| I[👤 Cliente/Usuário]
-    H -->|GET /metrics| J[Prometheus :9090]
-    K[GitHub Actions CI/CD] -->|push main| L[Pipeline Completo + Testes]
-    L -->|docker build| M[Imagem Docker\npima-diabetes-api:latest]
+flowchart TD
+    A([🌐 Fonte Externa\nCSV Público]) -->|HTTP Download| B
+
+    subgraph PIPELINE ["⚙️  Orquestrador — pipeline_manager.py (DAG)"]
+        direction TB
+        B["📥 Ingestão\ndata_ingestion.py"] -->|data/raw/| C
+        C["🧹 Pré-processamento\npreprocessing.py"] -->|data/processed/| D
+        D["🧠 Treinamento\ntrain.py"] --> E
+
+        subgraph TREINO ["Comparação Multi-modelo"]
+            direction LR
+            RF[Random Forest]
+            LR[Logistic Regression]
+            SVM[Support Vector Machine]
+        end
+        E --> TREINO
+    end
+
+    TREINO -->|Todos os runs| F[(SQLite\ntraining_history.db)]
+    TREINO -->|Melhor modelo| G["📦 MLflow\nModel Registry\nDiabetesClassifier v1, v2..."]
+    G -->|load_latest_model| H
+
+    subgraph SERVE ["🚀  Serviço de Inferência"]
+        H["⚡ FastAPI :8000\n/predict  /metrics  /reload_model"]
+    end
+
+    H -->|POST /predict| I([👤 Cliente REST])
+    H -->|GET /metrics| J([📊 Prometheus\n:9090])
+
+    subgraph CICD ["🔄  CI/CD — GitHub Actions"]
+        K[Push → main] --> L[pip install + pipeline + pytest]
+        L --> M[docker build]
+        M --> N[Deploy Staging]
+    end
 ```
 
-### Arquitetura Técnica (Infraestrutura e Portas)
+### 2.2 Arquitetura Técnica — Componentes e Infraestrutura
 
 ```mermaid
 graph LR
-    subgraph Container Docker
-        API[FastAPI\n:8000]
-        VOL[(Volume\nmlruns/)]
-        API --- VOL
+    subgraph LOCAL ["Ambiente Local / Runner CI"]
+        direction TB
+        PM["pipeline_manager.py\n(Orquestrador + Scheduler)"]
+        TR["train.py\n(RF · LR · SVM)"]
+        PM --> TR
     end
-    subgraph Observabilidade
-        PROM[Prometheus\n:9090]
-        API -->|/metrics scrape| PROM
-    end
-    subgraph Persistência
+
+    subgraph STORAGE ["Camada de Persistência"]
+        direction TB
+        MLFLOW_T["MLflow Tracking Server\nexperimentos + artefatos"]
+        MLFLOW_R["MLflow Model Registry\nDiabetesClassifier vN"]
         SQLITE[(SQLite\ntraining_history.db)]
-        MLFLOW[MLflow Tracking\n+ Model Registry]
+        MLFLOW_T --> MLFLOW_R
     end
-    API --> SQLITE
-    API --> MLFLOW
-    CLIENT[Cliente REST] -->|POST /predict\nGET /\nPOST /reload_model| API
+
+    TR --> STORAGE
+
+    subgraph CONTAINER ["🐳  Container Docker — pima-diabetes-api:latest"]
+        direction TB
+        API["FastAPI :8000\nPydantic · Uvicorn"]
+        VOL[("📂 Volume\nmlruns/")]
+        API -.- VOL
+    end
+
+    MLFLOW_R -->|"mlflow.sklearn\n.load_model()"| API
+
+    subgraph OBS ["Observabilidade"]
+        PROM["Prometheus\n(scrape /metrics)"]
+        LOG["Logging Estruturado\n(nível INFO por requisição)"]
+    end
+
+    API --> OBS
+    CLIENT(["👤 Cliente"]) -->|"POST /predict\nPOST /reload_model\nGET /"| API
+    GHA["🔄 GitHub Actions"] -->|"push main → CI/CD"| CONTAINER
 ```
 
-### Arquitetura Técnica (Componentes)
+### 2.3 Justificativas Tecnológicas
 
-| Camada | Tecnologia | Justificativa |
-|---|---|---|
-| Ingestão/Preprocessamento | Pandas + NumPy | Padrão de mercado para ETL tabular |
-| Treinamento | Scikit-Learn (RF, LogReg, SVM) | Comparação multi-algoritmo exigida pelo case |
-| Gerenciamento de Artefatos | MLflow Tracking + **Model Registry** | Versionamento com stages (None → Production) |
-| Persistência de Metadados | SQLite + SQLAlchemy ORM | Reprodutível localmente; migração trivial para PostgreSQL em produção |
-| API de Inferência | FastAPI + Uvicorn + Pydantic | Async nativo, validação automática, OpenAPI/Swagger embutido |
-| Observabilidade | `prometheus-fastapi-instrumentator` + `logging` | Métricas de infraestrutura expostas em `/metrics`; logs estruturados por componente |
-| Orquestração | `pipeline_manager.py` + `schedule` | DAG sequencial com early-stop em falha; agendável (`--demo`: 1min, produção: 24h) |
-| Infraestrutura | Docker + GitHub Actions | Reprodutibilidade via container; CI/CD completo em push ao main |
+| Componente | Tecnologia Escolhida | Alternativas Consideradas | Decisão |
+|---|---|---|---|
+| **Framework de API** | FastAPI | Flask, Django REST | FastAPI: validação automática (Pydantic), OpenAPI/Swagger embutido, suporte async nativo e performance superior |
+| **Rastreamento de Experimentos** | MLflow | W&B, Neptune, DVC | MLflow: open-source, auto-hospedado, Model Registry integrado, sem custo em PoC |
+| **Persistência de Metadados** | SQLite + SQLAlchemy | PostgreSQL, MongoDB | SQLite: zero infraestrutura para reprodutibilidade local; SQLAlchemy abstrai o dialeto — migração para PostgreSQL é uma linha |
+| **Orquestração** | `pipeline_manager.py` + `schedule` | Apache Airflow, Prefect | Airflow requer PostgreSQL + Redis + Celery; para PoC, o orquestrador customizado elimina dependências externas sem sacrificar a lógica de DAG |
+| **Observabilidade** | `prometheus-fastapi-instrumentator` | Datadog, New Relic | Solução open-source, scrape-ready para Grafana, zero configuração de servidor externo |
+| **Infraestrutura** | Docker + GitHub Actions | Terraform + Jenkins | Docker para portabilidade; GitHub Actions para integração nativa com o repositório |
 
 ---
 
-## ⚙️ III. Plano de Implementação (Explicação Técnica)
+## ⚙️ III. Plano de Implementação e Reprodução
 
-O projeto foi estruturado para ser modular e extensível. Cada etapa do pipeline é indepedente, mas orquestrada pelo `pipeline_manager.py`:
+### 3.1 Estrutura do Projeto
 
-1.  **Ingestão (`data_ingestion.py`)**: Carrega dados brutos de fontes externas e garante a persistência local em `/data/raw`.
-2.  **Pré-processamento (`preprocessing.py`)**: Realiza limpeza de dados, como tratamento de valores nulos (zeros substituídos pela mediana), garantindo a qualidade para os modelos.
-3.  **Treinamento (`train.py`)**: 
-    - Treina três algoritmos simultaneamente para comparação de performance.
-    - O **MLflow** registra os parâmetros e modelos.
-    - O banco **SQLite** armazena o histórico de treino com `timestamp`, `accuracy` e `f1_score`, permitindo auditoria rápida sem dependências externas complexas.
-4.  **Orquestração (`pipeline_manager.py`)**: Implementa a lógica de uma **DAG** (Directed Acyclic Graph) para garantir que uma etapa só ocorra após o sucesso da anterior. Inclui suporte a agendamento via biblioteca `schedule`.
-5.  **API e Observabilidade (`api.py`)**: 
-    - Expõe o endpoint `/predict` para consumo em tempo real.
-    - Expõe o endpoint `/metrics` para ferramentas de monitoramento.
-    - Inclui endpoint `/reload_model` para atualização a quente sem downtime.
+```
+santander-ml-pipeline/
+├── src/
+│   ├── data_ingestion.py     # Etapa 1 — Download e persistência de dados brutos
+│   ├── preprocessing.py      # Etapa 2 — Limpeza e imputação por mediana
+│   ├── train.py              # Etapa 3 — Treino multi-modelo + MLflow + SQLite
+│   ├── pipeline_manager.py   # Orquestrador: DAG sequencial com early-stop e scheduler
+│   ├── api.py                # FastAPI: /predict · /metrics · /reload_model
+│   └── test_api.py           # Testes automatizados com pytest
+├── .github/
+│   └── workflows/ci.yml      # Pipeline de CI/CD — GitHub Actions
+├── Dockerfile                # Container Python 3.11-slim
+├── requirements.txt          # Dependências com versões fixas (Python 3.11+)
+├── .gitignore                # Exclui venv/, mlruns/, *.db, data/
+└── README.md                 # Este documento
+```
+
+### 3.2 Pré-requisitos
+
+| Ferramenta | Versão mínima | Verificação |
+|---|---|---|
+| Python | **3.11+** | `python --version` |
+| pip | 23+ | `pip --version` |
+| Git | Qualquer | `git --version` |
+| Docker *(opcional)* | 20+ | `docker --version` |
+
+> **Atenção:** Os pacotes em `requirements.txt` exigem Python ≥ 3.11. O Dockerfile e o workflow de CI/CD já estão configurados com Python 3.11.
+
+---
+
+### 3.3 Guia de Reprodução Passo a Passo
+
+#### Passo 1 — Clonar o Repositório
+
+```bash
+git clone https://github.com/<seu-usuario>/santander-ml-pipeline.git
+cd santander-ml-pipeline
+```
+
+#### Passo 2 — Criar e Ativar o Ambiente Virtual
+
+```bash
+python -m venv venv
+```
+
+```bash
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+
+# Linux / macOS
+source venv/bin/activate
+```
+
+#### Passo 3 — Instalar Dependências
+
+```bash
+pip install -r requirements.txt
+```
+
+#### Passo 4 — Configurar o PYTHONPATH
+
+```bash
+# Windows (PowerShell) — necessário para imports relativos
+$env:PYTHONPATH = "."
+
+# Linux / macOS
+export PYTHONPATH=.
+```
+
+---
+
+### 3.4 Executando o Pipeline
+
+#### Modo único — executa uma vez e encerra (padrão do CI/CD)
+
+```bash
+# Windows
+$env:PYTHONPATH="."; python src/pipeline_manager.py
+
+# Linux / macOS
+PYTHONPATH=. python src/pipeline_manager.py
+```
+
+**Saída esperada:**
+```
+2026-04-04 10:00:00 - INFO - === Iniciando execução do Pipeline de ML ===
+2026-04-04 10:00:00 - INFO - Etapa 1: Iniciando Ingestão de Dados...
+Dados salvos com sucesso em: data/raw/pima_diabetes.csv — (768, 9)
+2026-04-04 10:00:01 - INFO - Etapa 2: Iniciando Pré-processamento...
+Dados processados salvos em: data/processed/pima_diabetes_processed.csv
+2026-04-04 10:00:01 - INFO - Etapa 3: Iniciando Treinamento...
+RandomForest      → Acc: 0.7727 | F1: 0.6667
+LogisticRegression → Acc: 0.7662 | F1: 0.6383
+SVM               → Acc: 0.7597 | F1: 0.6301
+
+Melhor modelo: RandomForest | Acc: 0.7727
+Modelo registrado: DiabetesClassifier | Versão: 1 | Run ID: abc123...
+2026-04-04 10:00:15 - INFO - === Pipeline finalizado com SUCESSO em 14.32s ===
+```
+
+#### Modo demonstração — scheduler ativo com ciclo de 1 minuto
+
+Ideal para demonstrar o agendamento ao vivo durante a apresentação.
+
+```bash
+# Windows
+$env:PYTHONPATH="."; python src/pipeline_manager.py --demo
+
+# Linux / macOS
+PYTHONPATH=. python src/pipeline_manager.py --demo
+```
+
+```
+2026-04-04 10:00:00 - INFO - Modo DEMO: pipeline agendada para cada 1 minuto.
+2026-04-04 10:00:00 - INFO - Agendador iniciado. Aguardando próxima execução...
+# Pipeline re-executa automaticamente a cada 60s — Ctrl+C para encerrar
+```
+
+---
+
+### 3.5 Iniciando a API de Inferência
+
+```bash
+uvicorn src.api:app --reload
+```
+
+| Endpoint | Método | Descrição |
+|---|---|---|
+| `http://localhost:8000/` | `GET` | Health check — status da API e do modelo |
+| `http://localhost:8000/docs` | `GET` | Swagger UI interativo |
+| `http://localhost:8000/predict` | `POST` | Inferência — retorna predição e confiança |
+| `http://localhost:8000/reload_model` | `POST` | Hot-reload do modelo sem downtime |
+| `http://localhost:8000/metrics` | `GET` | Métricas Prometheus (latência, throughput) |
+
+**Exemplo de requisição ao `/predict`:**
+
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "preg": 1.0, "plas": 85.0, "pres": 66.0, "skin": 29.0,
+    "test": 0.0, "mass": 26.6, "pedi": 0.351, "age": 31.0
+  }'
+```
+
+**Resposta:**
+```json
+{
+  "predicao": "Negativo para Diabetes",
+  "confianca": 0.8423,
+  "modelo_versao": "mlruns/1/abc123.../artifacts/model",
+  "latencia_s": 0.0031
+}
+```
+
+> Se o modelo não estiver carregado, a API retorna **HTTP 503** com a mensagem de erro adequada — nunca um 200 enganoso.
+
+---
+
+### 3.6 Acessando o MLflow UI
+
+```bash
+mlflow ui
+# Acesse: http://localhost:5000
+```
+
+No MLflow UI é possível:
+- Comparar accuracy e F1 entre os três algoritmos por execução
+- Navegar até **Model Registry → DiabetesClassifier** e ver o histórico de versões
+- Baixar qualquer artefato de modelo por `run_id`
+
+---
+
+### 3.7 Executando os Testes Automatizados
+
+```bash
+pytest src/test_api.py -v
+```
+
+```
+src/test_api.py::test_predict_endpoint PASSED   [ 50%]
+src/test_api.py::test_health_check     PASSED   [100%]
+============ 2 passed in 1.23s ============
+```
+
+---
+
+### 3.8 Execução via Docker
+
+```bash
+# Build da imagem
+docker build -t pima-diabetes-api:latest .
+
+# Execução do container
+docker run -d -p 8000:8000 --name diabetes-api pima-diabetes-api:latest
+
+# Verificar logs
+docker logs diabetes-api
+
+# Testar
+curl http://localhost:8000/
+```
+
+---
+
+### 3.9 Esteira de CI/CD — GitHub Actions
+
+Toda alteração no branch `main` dispara automaticamente o workflow `.github/workflows/ci.yml`:
+
+```
+Push/PR → main
+    │
+    ├─ 1. Checkout + Python 3.11
+    ├─ 2. pip install -r requirements.txt
+    ├─ 3. python src/pipeline_manager.py    ← executa o DAG completo
+    ├─ 4. pytest src/test_api.py            ← valida a API
+    ├─ 5. docker build                      ← prepara imagem de produção
+    └─ 6. Deploy (Staging simulation)
+```
+
+> O CI falha imediatamente se qualquer step retornar código de saída não-zero — garantindo que código quebrado nunca chegue à produção.
 
 ---
 
 ## 🚀 IV. Melhorias e Considerações Finais
 
-### Escalabilidade e Produção
-Para um ambiente de produção real com "grande volume de dados", a arquitetura permite:
-- **Horizontal Scaling**: O contêiner Docker pode ser replicado em um cluster **Kubernetes (K8s)**.
-- **Big Data Storage**: Substituição do SQLite por **PostgreSQL (RDS/Cloud SQL)** ou Data Lakes (**S3/Azure Blob**).
-- **Distributed Training**: Integração com **Apache Spark** ou **Dask** para volumes massivos de dados.
+### 4.1 Limitações Conhecidas e Decisões de Trade-off
 
-### Considerações Finais
-A solução demonstra domínio completo sobre o ciclo de vida de Machine Learning (ML Lifecycle), priorizando a **reprodutibilidade**, **segurança** (via containers isolados) e **eficiência** operacional.
+| Limitação | Contexto | Solução em Produção |
+|---|---|---|
+| SQLite não suporta múltiplos escritores | Pipeline sequencial — sem concorrência no PoC | Substituir por PostgreSQL (trocar `DATABASE_URL`) |
+| Mediana calculada no dataset completo (data leakage) | Impacto mínimo em 768 linhas | `sklearn.Pipeline` + `SimpleImputer` ajustado só no treino |
+| Modelo embarcado na imagem Docker | Simplifica o PoC | Montar `mlruns/` como volume ou carregar do Registry por URI |
+| Sem monitoramento de data drift | Fora do escopo do case | Evidently AI para métricas de distribuição de features |
+
+### 4.2 Roadmap de Produção
+
+```
+Curto prazo (sem mudança arquitetural)
+├── docker-compose.yml com API + Prometheus Server + Grafana
+├── Push automático de imagem para Docker Hub / GHCR no CI
+└── Métricas de negócio customizadas (taxa de positivos, distribuição de confiança)
+
+Médio prazo (upgrade de infraestrutura)
+├── Kubernetes: Deployment + Service + HPA (escalabilidade horizontal real)
+├── PostgreSQL (RDS/Cloud SQL) para persistência de metadados
+├── Retry com backoff exponencial na ingestão (biblioteca tenacity)
+└── Monitoramento de data drift com Evidently AI
+
+Longo prazo (plataforma de MLOps madura)
+├── Apache Airflow ou Prefect para DAGs visuais com retry e SLA
+├── Feature Store (Feast) para centralizar features de treino e inferência
+├── A/B Testing entre versões do modelo em produção simultânea
+└── MLflow Model Serving com stage Production → Staging → Archived
+```
+
+### 4.3 Considerações Finais
+
+A solução demonstra domínio do **ciclo de vida completo de Machine Learning em produção**. As escolhas tecnológicas foram guiadas por três princípios:
+
+- **Reprodutibilidade:** qualquer pessoa com Python 3.11 e `pip install -r requirements.txt` consegue executar o pipeline do zero — sem provisionar nenhuma infraestrutura externa.
+- **Rastreabilidade:** cada execução gera registros imutáveis no MLflow (artefatos + métricas) e no SQLite (metadados), permitindo auditar qualquer predição até seu run de origem.
+- **Evolução incremental:** cada componente foi projetado para ser substituído pela sua versão de produção de forma independente, sem refatoração da lógica de negócio.
 
 ---
 
-## 🛠️ Como Reproduzir (Quick Start)
+<div align="center">
 
-### 1. Criar Ambiente Virtual e Instalar Libs
-```bash
-python -m venv venv
-# Windows
-.\venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
+**Candidato:** Arthur S.
+**Certificação:** Academia Santander — Engenharia de Machine Learning
+**Data:** Abril/2026
 
-pip install -r requirements.txt
-```
-
-### 2. Executar Pipeline Completa (Ingestão -> Treino)
-```bash
-python src/pipeline_manager.py
-```
-*Isso gerará o `mlruns`, `mlflow.db` e o `training_history.db`.*
-
-### 3. Iniciar API com Observabilidade
-```bash
-uvicorn src.api:app --reload
-```
-Acesse:
-- **Interativo (Swagger)**: `http://127.0.0.1:8000/docs`
-- **Métricas**: `http://127.0.0.1:8000/metrics`
-
----
-**Candidato:** Arthur S. (e Antigravity AI)
-**Data:** 04/04/2026
+</div>
