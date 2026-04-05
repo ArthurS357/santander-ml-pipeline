@@ -1,0 +1,46 @@
+name: ML Pipeline CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Orchestrated Pipeline (CI)
+      run: |
+        # Executa o orquestrador que gerencia Ingestão -> Preproc -> Treino (DAG)
+        python src/pipeline_manager.py
+
+    - name: Run API Tests
+      run: |
+        pytest src/test_api.py
+
+    - name: Build Docker Image (CD Preparation)
+      run: |
+        docker build -t pima-diabetes-api:latest .
+        # Em um ambiente real, aqui faríamos o push para um Registry (Docker Hub/ECR)
+        # docker push my-repo/pima-diabetes-api:latest
+
+    - name: Deploy Simulation (CD)
+      run: |
+        echo "Simulando deploy automático em ambiente de Staging..."
+        # docker run -d -p 8000:8000 pima-diabetes-api:latest
+        echo "Deploy concluído com sucesso."
