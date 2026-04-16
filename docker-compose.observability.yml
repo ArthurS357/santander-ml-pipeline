@@ -36,7 +36,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - MLFLOW_TRACKING_URI=http://servidor-mlflow:5000
+      - MLFLOW_TRACKING_URI=sqlite:///./mlflow.db
       - MODEL_URI=
       - DATABASE_URL=sqlite:///./training_history.db
       - PROCESSED_DATA_FILE=data/processed/pima_diabetes_processed.csv

@@ -11,7 +11,7 @@
 [![CI/CD](https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
 [![Prometheus](https://img.shields.io/badge/Prometheus-Métricas-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/)
-[![Evidently](https://img.shields.io/badge/Evidently-Data%20Drift-FF6F00?style=for-the-badge&logo=python&logoColor=white)](https://www.evidentlyai.com/)
+
 [![SQLite](https://img.shields.io/badge/SQLite-Persistência-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 
 <br/>
@@ -84,7 +84,7 @@ flowchart TD
     end
 
     TREINO -->|Todos os runs| F[(SQLite\ntraining_history.db)]
-    TREINO -->|Melhor modelo| G["📦 MLflow\nModel Registry\nDiabetesClassifier v1, v2..."]
+    TREINO -->|Melhor modelo| G["📦 MLflow\nModel Registry\nPimaDiabetes_RandomForest_MedianImputer v1, v2..."]
     G -->|load_latest_model| H
 
     subgraph SERVE ["🚀  Serviço de Inferência"]
@@ -198,12 +198,12 @@ santander-ml-pipeline/
 
 | Ferramenta          | Versão mínima | Verificação        |
 | ------------------- | ------------- | ------------------ |
-| Python              | **3.11+**     | `python --version` |
+| Python              | **3.14+**     | `python --version` |
 | pip                 | 23+           | `pip --version`    |
 | Git                 | Qualquer      | `git --version`    |
 | Docker _(opcional)_ | 20+           | `docker --version` |
 
-> **Atenção:** Os pacotes em `requirements.txt` exigem Python ≥ 3.11. O Dockerfile e o workflow de CI/CD estão configurados com Python 3.11.
+> **Atenção:** Os pacotes em `requirements.txt` exigem Python ≥ 3.14. O Dockerfile e o workflow de CI/CD estão configurados com Python 3.14.
 >
 > **Nota Python 3.14:** O pipeline foi testado e é compatível com Python 3.14, com uma única exceção: o pacote **Evidently** foi desabilitado por incompatibilidade com `pydantic.v1` nessa versão. Todas as demais funcionalidades (ingestão, pré-processamento, treinamento, API, MLflow) operam normalmente.
 
@@ -405,7 +405,7 @@ Toda alteração no branch `main` dispara automaticamente o workflow `.github/wo
 ```
 Push/PR → main
     │
-    ├─ 1. Checkout + Python 3.11
+    ├─ 1. Checkout + Python 3.14
     ├─ 2. pip install -r requirements.txt + requirements-dev.txt
     ├─ 3. 🛡️ Security Gate:
     │     ├─ black --check src/              ← formatação PEP 8
