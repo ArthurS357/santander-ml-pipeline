@@ -176,10 +176,7 @@ async def predict(
     logger.info(f"Requisição de predição recebida de {client_ip}")
 
     # Passo 5: Converter dados e prever
-    try:
-        input_dict = data.dict()
-    except AttributeError:
-        input_dict = data.model_dump()
+    input_dict = data.model_dump()
 
     df_entrada = pd.DataFrame([input_dict])
 

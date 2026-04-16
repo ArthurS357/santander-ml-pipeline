@@ -28,7 +28,7 @@ jobs:
     env:
       PYTHONPATH: "."
       # Imagem Docker — lowercase obrigatório para GHCR
-      IMAGE_NAME: ghcr.io/${{ github.repository }}/pima-diabetes-api
+      IMAGE_NAME: ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api
 
     steps:
     # =================================================================
