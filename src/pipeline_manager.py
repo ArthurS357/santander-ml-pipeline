@@ -113,8 +113,10 @@ class MLPipelineOrchestrator:
             logger.info(
                 f"=== Pipeline finalizado com SUCESSO em {time.time() - start_time:.2f}s ==="
             )
+            return True
         else:
             logger.error("=== Pipeline finalizado com FALHA ===")
+            return False
 
 
 def schedule_pipeline(demo_mode: bool = False):
@@ -155,4 +157,6 @@ if __name__ == "__main__":
         # Modo CI/CD: executa o pipeline uma única vez e encerra
         logger.info("Modo CI: execução única do pipeline.")
         orchestrator = MLPipelineOrchestrator()
-        orchestrator.run_pipeline()
+        success = orchestrator.run_pipeline()
+        if not success:
+            sys.exit(1)

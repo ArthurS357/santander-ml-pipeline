@@ -37,7 +37,7 @@ def load_data(file_path: str) -> pd.DataFrame:
         ddf = dd.read_csv(file_path, names=colunas, header=0, assume_missing=True)
         return ddf.compute()
 
-    return pd.read_csv(file_path, names=colunas)
+    return pd.read_csv(file_path, names=colunas, header=0)
 
 
 def load_and_save_data(url: str, output_path: str):
