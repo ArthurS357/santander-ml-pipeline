@@ -25,7 +25,7 @@ class MLPipelineOrchestrator:
         # em ambientes sem acesso à internet. Deixe vazio para usar arquivo local.
         self.raw_data_url = os.getenv(
             "RAW_DATA_URL",
-            "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv",
+            "data/raw/pima_diabetes.csv",
         )
         self.raw_data_path = "data/raw/pima_diabetes.csv"
         self.processed_data_path = "data/processed/pima_diabetes_processed.csv"

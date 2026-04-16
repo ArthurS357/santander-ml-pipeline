@@ -6,7 +6,8 @@ WORKDIR /app
 
 # Copia a lista de dependências e instala
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ARG PIP_INDEX_URL=http://internal-pypi/simple
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX_URL} -r requirements.txt
 
 # Copia todo o restante do código do projeto
 # Isso inclui a pasta mlruns necessária para carregar o modelo

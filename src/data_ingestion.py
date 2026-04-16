@@ -22,6 +22,6 @@ def load_and_save_data(url: str, output_path: str):
 
 
 if __name__ == "__main__":
-    DATA_URL = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv"
+    DATA_URL = os.getenv("RAW_DATA_URL", "data/raw/pima_diabetes.csv")
     OUTPUT_FILE = "data/raw/pima_diabetes.csv"
     load_and_save_data(DATA_URL, OUTPUT_FILE)

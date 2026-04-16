@@ -15,7 +15,7 @@ cryptography==46.0.6
 cycler==0.12.1
 databricks-sdk==0.102.0
 docker==7.1.0
-evidently>=0.4.0
+# evidently>=0.4.0 (Removido por incompatibilidade com Python 3.14)
 fastapi==0.135.3
 fastparquet>=2023.10.0
 Flask==3.1.3
