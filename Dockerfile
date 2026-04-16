@@ -1,5 +1,5 @@
 # Usa uma imagem oficial e leve do Python
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Define a pasta de trabalho dentro do contêiner
 WORKDIR /app
@@ -25,6 +25,8 @@ ENV DATABASE_URL="sqlite:///./training_history.db"
 ENV PROCESSED_DATA_FILE="data/processed/pima_diabetes_processed.csv"
 ENV INFERENCE_LOG_FILE="data/logs/inference_logs.csv"
 ENV DRIFT_THRESHOLD="0.5"
+# Offline mode: aponte para espelho interno ou deixe o arquivo em data/raw/
+ENV RAW_DATA_URL=""
 
 # Comando para iniciar o servidor web da API
 CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]

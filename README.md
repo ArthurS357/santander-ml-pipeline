@@ -1,15 +1,17 @@
 <div align="center">
 
 # Santander ML Pipeline
+
 ### Case de Certificação — Academia Santander · Engenharia de Machine Learning
 
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![MLflow](https://img.shields.io/badge/MLflow-3.10-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![CI/CD](https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
 [![Prometheus](https://img.shields.io/badge/Prometheus-Métricas-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![Evidently](https://img.shields.io/badge/Evidently-Data%20Drift-FF6F00?style=for-the-badge&logo=python&logoColor=white)](https://www.evidentlyai.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-Persistência-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 
 <br/>
@@ -31,18 +33,19 @@
 
 ## 🎯 I. Objetivo do Case
 
-Este projeto implementa uma solução completa de **MLOps (Machine Learning Operations)** como resposta ao case de certificação da **Academia Santander**. O domínio escolhido é **saúde pública**: a previsão de ocorrência de diabetes utilizando o dataset *Pima Indians Diabetes* (768 pacientes, 8 features clínicas), expondo o resultado via API REST de baixa latência.
+Este projeto implementa uma solução completa de **MLOps (Machine Learning Operations)** como resposta ao case de certificação da **Academia Santander**. O domínio escolhido é **saúde pública**: a previsão de ocorrência de diabetes utilizando o dataset _Pima Indians Diabetes_ (768 pacientes, 8 features clínicas), expondo o resultado via API REST de baixa latência.
 
 O objetivo não é apenas construir um modelo — é construir a **infraestrutura que gerencia o ciclo de vida inteiro do modelo**, cobrindo todos os seis pilares mandatórios do edital:
 
-| Pilar | Requisito do Edital | Implementação |
-|---|---|---|
-| **Treinamento** | Múltiplos algoritmos com comparação de desempenho | RF, Logistic Regression e SVM treinados simultaneamente |
-| **CI/CD** | Integração e deploy contínuos automáticos | GitHub Actions em push ao `main` |
-| **Orquestração** | Fluxo completo com agendamento de pipelines | `MLPipelineOrchestrator` com DAG sequencial + `schedule` |
-| **Gerenciamento de Artefatos** | Versionamento de modelos e métricas | MLflow Tracking + **Model Registry** com versões incrementais |
-| **Observabilidade** | Métricas de desempenho em tempo real | Prometheus via `/metrics` + logging estruturado |
-| **Escalabilidade** | Dimensionamento horizontal dos recursos | Docker (base para Kubernetes) + GitHub Actions |
+| Pilar                          | Requisito do Edital                               | Implementação                                                             |
+| ------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------- |
+| **Treinamento**                | Múltiplos algoritmos com comparação de desempenho | RF, Logistic Regression e SVM treinados simultaneamente                   |
+| **CI/CD**                      | Integração e deploy contínuos automáticos         | GitHub Actions com Security Gate (black, flake8, bandit) + push GHCR      |
+| **Orquestração**               | Fluxo completo com agendamento de pipelines       | `MLPipelineOrchestrator` com DAG sequencial + `schedule`                  |
+| **Gerenciamento de Artefatos** | Versionamento de modelos e métricas               | MLflow Tracking + **Model Registry** com versões incrementais             |
+| **Observabilidade**            | Métricas de desempenho em tempo real              | Prometheus `/metrics` + Inference Logging + Data Drift Report (Evidently) |
+| **Escalabilidade**             | Dimensionamento horizontal dos recursos           | Docker + Kubernetes (Deployment, Service, HPA) + GitHub Actions           |
+| **Segurança**                  | Análise estática de vulnerabilidades (SAST)       | Bandit no CI + Secrets via K8s Opaque + Shift-Left Security               |
 
 ---
 
@@ -77,14 +80,20 @@ flowchart TD
 
     subgraph SERVE ["🚀  Serviço de Inferência"]
         H["⚡ FastAPI :8000\n/predict  /metrics  /reload_model"]
+        H -->|BackgroundTasks| IL["📝 Inference Logging\ndata/logs/inference_logs.csv"]
     end
+
+    IL -->|Dados de Produção| RPT["📊 generate_report.py\nEvidently Data Drift"]
+    D -->|Dados de Referência| RPT
+    RPT -->|HTML| RDIR["📁 reports/\ndata_drift_report_YYYYMMDD.html"]
 
     H -->|POST /predict| I([👤 Cliente REST])
     H -->|GET /metrics| J([📊 Prometheus\n:9090])
 
     subgraph CICD ["🔄  CI/CD — GitHub Actions"]
-        K[Push → main] --> L[pip install + pipeline + pytest]
-        L --> M[docker build]
+        K[Push → main] --> SEC["🛡️ Security Gate\nblack · flake8 · bandit"]
+        SEC --> L[Pipeline ML + pytest]
+        L --> M["docker build + push GHCR"]
         M --> N[Deploy Staging]
     end
 ```
@@ -112,7 +121,7 @@ graph LR
 
     subgraph CONTAINER ["🐳  Container Docker — pima-diabetes-api:latest"]
         direction TB
-        API["FastAPI :8000\nPydantic · Uvicorn"]
+        API["FastAPI :8000\nPydantic V2 · Uvicorn"]
         VOL[("📂 Volume\nmlruns/")]
         API -.- VOL
     end
@@ -122,23 +131,24 @@ graph LR
     subgraph OBS ["Observabilidade"]
         PROM["Prometheus\n(scrape /metrics)"]
         LOG["Logging Estruturado\n(nível INFO por requisição)"]
+        DRIFT["Evidently AI\n(Data Drift Report)"]
     end
 
     API --> OBS
     CLIENT(["👤 Cliente"]) -->|"POST /predict\nPOST /reload_model\nGET /"| API
-    GHA["🔄 GitHub Actions"] -->|"push main → CI/CD"| CONTAINER
+    GHA["🔄 GitHub Actions"] -->|"Security Gate → CI/CD"| CONTAINER
 ```
 
 ### 2.3 Justificativas Tecnológicas
 
-| Componente | Tecnologia Escolhida | Alternativas Consideradas | Decisão |
-|---|---|---|---|
-| **Framework de API** | FastAPI | Flask, Django REST | FastAPI: validação automática (Pydantic), OpenAPI/Swagger embutido, suporte async nativo e performance superior |
-| **Rastreamento de Experimentos** | MLflow | W&B, Neptune, DVC | MLflow: open-source, auto-hospedado, Model Registry integrado, sem custo em PoC |
-| **Persistência de Metadados** | SQLite + SQLAlchemy | PostgreSQL, MongoDB | SQLite: zero infraestrutura para reprodutibilidade local; SQLAlchemy abstrai o dialeto — migração para PostgreSQL é uma linha |
-| **Orquestração** | `pipeline_manager.py` + `schedule` | Apache Airflow, Prefect | Airflow requer PostgreSQL + Redis + Celery; para PoC, o orquestrador customizado elimina dependências externas sem sacrificar a lógica de DAG |
-| **Observabilidade** | `prometheus-fastapi-instrumentator` | Datadog, New Relic | Solução open-source, scrape-ready para Grafana, zero configuração de servidor externo |
-| **Infraestrutura** | Docker + GitHub Actions | Terraform + Jenkins | Docker para portabilidade; GitHub Actions para integração nativa com o repositório |
+| Componente                       | Tecnologia Escolhida                | Alternativas Consideradas | Decisão                                                                                                                                       |
+| -------------------------------- | ----------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Framework de API**             | FastAPI                             | Flask, Django REST        | FastAPI: validação automática (Pydantic), OpenAPI/Swagger embutido, suporte async nativo e performance superior                               |
+| **Rastreamento de Experimentos** | MLflow                              | W&B, Neptune, DVC         | MLflow: open-source, auto-hospedado, Model Registry integrado, sem custo em PoC                                                               |
+| **Persistência de Metadados**    | SQLite + SQLAlchemy                 | PostgreSQL, MongoDB       | SQLite: zero infraestrutura para reprodutibilidade local; SQLAlchemy abstrai o dialeto — migração para PostgreSQL é uma linha                 |
+| **Orquestração**                 | `pipeline_manager.py` + `schedule`  | Apache Airflow, Prefect   | Airflow requer PostgreSQL + Redis + Celery; para PoC, o orquestrador customizado elimina dependências externas sem sacrificar a lógica de DAG |
+| **Observabilidade**              | `prometheus-fastapi-instrumentator` | Datadog, New Relic        | Solução open-source, scrape-ready para Grafana, zero configuração de servidor externo                                                         |
+| **Infraestrutura**               | Docker + GitHub Actions             | Terraform + Jenkins       | Docker para portabilidade; GitHub Actions para integração nativa com o repositório                                                            |
 
 ---
 
@@ -152,25 +162,37 @@ santander-ml-pipeline/
 │   ├── data_ingestion.py     # Etapa 1 — Download e persistência de dados brutos
 │   ├── preprocessing.py      # Etapa 2 — Limpeza e imputação por mediana
 │   ├── train.py              # Etapa 3 — Treino multi-modelo + MLflow + SQLite
-│   ├── pipeline_manager.py   # Orquestrador: DAG sequencial com early-stop e scheduler
-│   ├── api.py                # FastAPI: /predict · /metrics · /reload_model
+│   ├── generate_report.py    # Etapa 4 — Data Drift Report (Evidently AI)
+│   ├── pipeline_manager.py   # Orquestrador: DAG sequencial + scheduler + reporting
+│   ├── api.py                # FastAPI: /predict · /metrics · /reload_model + Inference Logging
 │   └── test_api.py           # Testes automatizados com pytest
+├── k8s/
+│   ├── deployment.yaml       # Deployment: 3 réplicas + probes + ConfigMap/Secret refs
+│   ├── service.yaml          # Service: LoadBalancer :80 → :8000
+│   ├── hpa.yaml              # HPA: autoscaling CPU 70% / Mem 80% (3–10 réplicas)
+│   └── configmap-secret.yaml # ConfigMap + Secret Opaque (DATABASE_URL base64)
+├── observability/
+│   ├── prometheus.yml        # Scrape config: 5s interval → FastAPI /metrics
+│   └── README.md             # Queries PromQL (erro 5xx, P95 latência, throughput)
 ├── .github/
-│   └── workflows/ci.yml      # Pipeline de CI/CD — GitHub Actions
+│   └── workflows/ci.yml      # CI/CD: Security Gate → Pipeline → Tests → GHCR Push
+├── docker-compose.observability.yml  # Stack: API + Prometheus + Grafana
 ├── Dockerfile                # Container Python 3.11-slim
-├── requirements.txt          # Dependências com versões fixas (Python 3.11+)
-├── .gitignore                # Exclui venv/, mlruns/, *.db, data/
+├── requirements.txt          # Dependências de produção (Python 3.11+)
+├── requirements-dev.txt      # Dependências de CI: black, flake8, bandit
+├── pyrightconfig.json        # Configuração Pylance/pyright
+├── .gitignore                # Exclui venv/, mlruns/, *.db, data/, reports/
 └── README.md                 # Este documento
 ```
 
 ### 3.2 Pré-requisitos
 
-| Ferramenta | Versão mínima | Verificação |
-|---|---|---|
-| Python | **3.11+** | `python --version` |
-| pip | 23+ | `pip --version` |
-| Git | Qualquer | `git --version` |
-| Docker *(opcional)* | 20+ | `docker --version` |
+| Ferramenta          | Versão mínima | Verificação        |
+| ------------------- | ------------- | ------------------ |
+| Python              | **3.11+**     | `python --version` |
+| pip                 | 23+           | `pip --version`    |
+| Git                 | Qualquer      | `git --version`    |
+| Docker _(opcional)_ | 20+           | `docker --version` |
 
 > **Atenção:** Os pacotes em `requirements.txt` exigem Python ≥ 3.11. O Dockerfile e o workflow de CI/CD já estão configurados com Python 3.11.
 
@@ -230,6 +252,7 @@ PYTHONPATH=. python src/pipeline_manager.py
 ```
 
 **Saída esperada:**
+
 ```
 2026-04-04 10:00:00 - INFO - === Iniciando execução do Pipeline de ML ===
 2026-04-04 10:00:00 - INFO - Etapa 1: Iniciando Ingestão de Dados...
@@ -272,13 +295,13 @@ PYTHONPATH=. python src/pipeline_manager.py --demo
 uvicorn src.api:app --reload
 ```
 
-| Endpoint | Método | Descrição |
-|---|---|---|
-| `http://localhost:8000/` | `GET` | Health check — status da API e do modelo |
-| `http://localhost:8000/docs` | `GET` | Swagger UI interativo |
-| `http://localhost:8000/predict` | `POST` | Inferência — retorna predição e confiança |
-| `http://localhost:8000/reload_model` | `POST` | Hot-reload do modelo sem downtime |
-| `http://localhost:8000/metrics` | `GET` | Métricas Prometheus (latência, throughput) |
+| Endpoint                             | Método | Descrição                                  |
+| ------------------------------------ | ------ | ------------------------------------------ |
+| `http://localhost:8000/`             | `GET`  | Health check — status da API e do modelo   |
+| `http://localhost:8000/docs`         | `GET`  | Swagger UI interativo                      |
+| `http://localhost:8000/predict`      | `POST` | Inferência — retorna predição e confiança  |
+| `http://localhost:8000/reload_model` | `POST` | Hot-reload do modelo sem downtime          |
+| `http://localhost:8000/metrics`      | `GET`  | Métricas Prometheus (latência, throughput) |
 
 **Exemplo de requisição ao `/predict`:**
 
@@ -292,6 +315,7 @@ curl -X POST http://localhost:8000/predict \
 ```
 
 **Resposta:**
+
 ```json
 {
   "predicao": "Negativo para Diabetes",
@@ -313,6 +337,7 @@ mlflow ui
 ```
 
 No MLflow UI é possível:
+
 - Comparar accuracy e F1 entre os três algoritmos por execução
 - Navegar até **Model Registry → DiabetesClassifier** e ver o histórico de versões
 - Baixar qualquer artefato de modelo por `run_id`
@@ -336,11 +361,12 @@ src/test_api.py::test_health_check     PASSED   [100%]
 ### 3.8 Execução via Docker
 
 ```bash
-# Build da imagem
-docker build -t pima-diabetes-api:latest .
+# Build da imagem (lowercase obrigatório para GHCR)
+docker build -t ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:latest .
 
 # Execução do container
-docker run -d -p 8000:8000 --name diabetes-api pima-diabetes-api:latest
+docker run -d -p 8000:8000 --name diabetes-api \
+  ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:latest
 
 # Verificar logs
 docker logs diabetes-api
@@ -359,14 +385,19 @@ Toda alteração no branch `main` dispara automaticamente o workflow `.github/wo
 Push/PR → main
     │
     ├─ 1. Checkout + Python 3.11
-    ├─ 2. pip install -r requirements.txt
-    ├─ 3. python src/pipeline_manager.py    ← executa o DAG completo
-    ├─ 4. pytest src/test_api.py            ← valida a API
-    ├─ 5. docker build                      ← prepara imagem de produção
-    └─ 6. Deploy (Staging simulation)
+    ├─ 2. pip install -r requirements.txt + requirements-dev.txt
+    ├─ 3. 🛡️ Security Gate:
+    │     ├─ black --check src/              ← formatação PEP 8
+    │     ├─ flake8 src/                     ← linting estático
+    │     └─ bandit -r src/                  ← SAST (vulnerabilidades)
+    ├─ 4. python src/pipeline_manager.py     ← executa o DAG completo
+    ├─ 5. pytest src/test_api.py -v          ← valida a API
+    ├─ 6. docker login ghcr.io               ← auth via GITHUB_TOKEN
+    ├─ 7. docker build + push GHCR           ← imagem :latest + :sha
+    └─ 8. Deploy (Staging simulation)
 ```
 
-> O CI falha imediatamente se qualquer step retornar código de saída não-zero — garantindo que código quebrado nunca chegue à produção.
+> **Shift-Left Security:** black, flake8 e bandit rodam **antes** dos testes. O CI falha imediatamente se houver falha de formatação, lint ou vulnerabilidade — código inseguro nunca chega à produção.
 
 ---
 
@@ -374,28 +405,30 @@ Push/PR → main
 
 ### 4.1 Limitações Conhecidas e Decisões de Trade-off
 
-| Limitação | Contexto | Solução em Produção |
-|---|---|---|
-| SQLite não suporta múltiplos escritores | Pipeline sequencial — sem concorrência no PoC | Substituir por PostgreSQL (trocar `DATABASE_URL`) |
-| Mediana calculada no dataset completo (data leakage) | Impacto mínimo em 768 linhas | `sklearn.Pipeline` + `SimpleImputer` ajustado só no treino |
-| Modelo embarcado na imagem Docker | Simplifica o PoC | Montar `mlruns/` como volume ou carregar do Registry por URI |
-| Sem monitoramento de data drift | Fora do escopo do case | Evidently AI para métricas de distribuição de features |
+| Limitação                                            | Contexto                                      | Solução em Produção                                          |
+| ---------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
+| SQLite não suporta múltiplos escritores              | Pipeline sequencial — sem concorrência no PoC | Substituir por PostgreSQL (trocar `DATABASE_URL`)            |
+| Mediana calculada no dataset completo (data leakage) | Impacto mínimo em 768 linhas                  | `sklearn.Pipeline` + `SimpleImputer` ajustado só no treino   |
+| Modelo embarcado na imagem Docker                    | Simplifica o PoC                              | Montar `mlruns/` como volume ou carregar do Registry por URI |
+| Evidently incompatível com Python 3.14               | `pydantic.v1` quebra no 3.14                  | Import com guarda — funciona no Docker (Python 3.11)         |
 
-### 4.2 Roadmap de Produção
+### 4.2 Implementado vs. Roadmap
 
 ```
-Curto prazo (sem mudança arquitetural)
-├── docker-compose.yml com API + Prometheus Server + Grafana
-├── Push automático de imagem para Docker Hub / GHCR no CI
-└── Métricas de negócio customizadas (taxa de positivos, distribuição de confiança)
+✅ Implementado
+├── Security Gate no CI: black + flake8 + bandit (Shift-Left Security)
+├── Push automático de imagem para GHCR no CI (docker/login-action)
+├── Monitoramento de Data Drift com Evidently AI (generate_report.py)
+├── Inference Logging via BackgroundTasks (data/logs/inference_logs.csv)
+├── Sistema de Alertas: WARNING quando drift_share > threshold
+├── docker-compose.observability.yml com API + Prometheus + Grafana
+├── Kubernetes: Deployment + Service + HPA + ConfigMap/Secret
+└── Pydantic V2 (model_dump) — sem warnings de deprecação
 
-Médio prazo (upgrade de infraestrutura)
-├── Kubernetes: Deployment + Service + HPA (escalabilidade horizontal real)
+🔜 Roadmap (próximas iterações)
+├── Métricas de negócio customizadas (taxa de positivos, distribuição de confiança)
 ├── PostgreSQL (RDS/Cloud SQL) para persistência de metadados
 ├── Retry com backoff exponencial na ingestão (biblioteca tenacity)
-└── Monitoramento de data drift com Evidently AI
-
-Longo prazo (plataforma de MLOps madura)
 ├── Apache Airflow ou Prefect para DAGs visuais com retry e SLA
 ├── Feature Store (Feast) para centralizar features de treino e inferência
 ├── A/B Testing entre versões do modelo em produção simultânea
@@ -409,6 +442,45 @@ A solução demonstra domínio do **ciclo de vida completo de Machine Learning e
 - **Reprodutibilidade:** qualquer pessoa com Python 3.11 e `pip install -r requirements.txt` consegue executar o pipeline do zero — sem provisionar nenhuma infraestrutura externa.
 - **Rastreabilidade:** cada execução gera registros imutáveis no MLflow (artefatos + métricas) e no SQLite (metadados), permitindo auditar qualquer predição até seu run de origem.
 - **Evolução incremental:** cada componente foi projetado para ser substituído pela sua versão de produção de forma independente, sem refatoração da lógica de negócio.
+
+---
+
+## 🚀 Como Rodar Offline (Ambiente Restrito)
+
+Se o ambiente não tem acesso ao GitHub ou à internet, basta colocar o arquivo `pima_diabetes.csv` dentro da pasta `data/raw/` e executar os comandos abaixo.  
+O pipeline ignorará a etapa de download e usará o MLflow em SQLite local.
+
+### 📁 Pré‑requisito
+
+Certifique‑se de que o dataset existe localmente:
+
+```
+data/raw/pima_diabetes.csv
+```
+
+### 💻 Execução
+
+**Windows (PowerShell)**
+
+```powershell
+$env:RAW_DATA_URL = ""
+$env:MLFLOW_TRACKING_URI = "sqlite:///./mlflow.db"
+$env:PYTHONPATH = "."
+venv\Scripts\python.exe src/pipeline_manager.py
+```
+
+**Linux / macOS (bash/zsh)**
+
+```bash
+export RAW_DATA_URL=""
+export MLFLOW_TRACKING_URI="sqlite:///./mlflow.db"
+export PYTHONPATH="."
+python src/pipeline_manager.py
+```
+
+- `RAW_DATA_URL=""` → forçar leitura do arquivo local.
+- `MLFLOW_TRACKING_URI=sqlite:///./mlflow.db` → evitar servidor remoto.
+- `PYTHONPATH="."` → importar módulos do projeto.
 
 ---
 

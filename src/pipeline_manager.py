@@ -1,3 +1,4 @@
+import os
 import time
 import schedule
 import logging
@@ -20,12 +21,26 @@ class MLPipelineOrchestrator:
     """
 
     def __init__(self):
-        self.raw_data_url = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv"
+        # RAW_DATA_URL: sobrescreva com caminho local (file://...) ou URL interna
+        # em ambientes sem acesso à internet. Deixe vazio para usar arquivo local.
+        self.raw_data_url = os.getenv(
+            "RAW_DATA_URL",
+            "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv",
+        )
         self.raw_data_path = "data/raw/pima_diabetes.csv"
         self.processed_data_path = "data/processed/pima_diabetes_processed.csv"
 
     def run_ingestion(self):
         logger.info("Etapa 1: Iniciando Ingestão de Dados...")
+
+        # Modo offline: se o arquivo raw já existir localmente, pula o download.
+        if os.path.exists(self.raw_data_path):
+            logger.info(
+                f"Arquivo raw encontrado localmente ({self.raw_data_path}). "
+                "Ingestão de rede ignorada (modo offline)."
+            )
+            return True
+
         try:
             load_and_save_data(self.raw_data_url, self.raw_data_path)
             logger.info("Ingestão concluída com sucesso.")
