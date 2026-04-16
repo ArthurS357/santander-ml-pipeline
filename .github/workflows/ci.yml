@@ -79,6 +79,18 @@ jobs:
       # =================================================================
       # 3. Pipeline ML (Treino + Versionamento via MLflow)
       # =================================================================
+      - name: Download dataset (CI — public UCI mirror)
+        run: |
+          mkdir -p data/raw
+          curl -fsSL \
+            "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv" \
+            -o data/raw/pima_diabetes.csv
+          # Prepend header row so the pipeline reads correct column names
+          echo "preg,plas,pres,skin,test,mass,pedi,age,class" | \
+            cat - data/raw/pima_diabetes.csv > /tmp/pima_with_header.csv
+          mv /tmp/pima_with_header.csv data/raw/pima_diabetes.csv
+          echo "Dataset baixado: $(wc -l < data/raw/pima_diabetes.csv) linhas"
+
       - name: Run Orchestrated Pipeline (CI)
         run: |
           # Executa o orquestrador que gerencia Ingestão -> Preproc -> Treino (DAG)
