@@ -93,3 +93,9 @@ waitress==3.0.2
 wcwidth==0.6.0
 Werkzeug==3.1.8
 zipp==3.23.0
+openpyxl>=3.1.0
+xlrd>=2.0.0
+pyarrow>=14.0.0
+dask[complete]>=2024.0.0
+dask-ml>=2024.0.0
+polars>=1.0.0

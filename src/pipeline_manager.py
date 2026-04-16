@@ -33,13 +33,20 @@ class MLPipelineOrchestrator:
     def run_ingestion(self):
         logger.info("Etapa 1: Iniciando Ingestão de Dados...")
 
-        # Modo offline: se o arquivo raw já existir localmente, pula o download.
-        if os.path.exists(self.raw_data_path):
+        # Modo offline: se o arquivo apontado por RAW_DATA_URL existir localmente,
+        # usa load_and_save_data para converter/copiar para o caminho padrão.
+        if os.path.exists(self.raw_data_url):
             logger.info(
-                f"Arquivo raw encontrado localmente ({self.raw_data_path}). "
+                f"Arquivo raw encontrado localmente ({self.raw_data_url}). "
                 "Ingestão de rede ignorada (modo offline)."
             )
-            return True
+            try:
+                load_and_save_data(self.raw_data_url, self.raw_data_path)
+                logger.info("Ingestão concluída com sucesso.")
+                return True
+            except Exception as e:
+                logger.error(f"Erro na Ingestão: {e}")
+                return False
 
         try:
             load_and_save_data(self.raw_data_url, self.raw_data_path)

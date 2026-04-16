@@ -5,7 +5,8 @@
       "Bash(venv/Scripts/python.exe -c \"import prometheus_fastapi_instrumentator; print\\(''pfi'', prometheus_fastapi_instrumentator.__version__\\)\")",
       "Bash(ls \"C:\\\\Users\\\\TR\\\\Desktop\\\\santander-ml-pipeline\\\\venv\\\\Lib\\\\site-packages\"\" | grep -iE \"schedule)",
       "Bash(\"prometheus 2>/dev/null || dir C:UsersTRDesktopsantander-ml-pipelinevenvLibsite-packages\" /b)",
-      "Bash(wc -l \"G:/Meu Drive/Meu_Workspace/Cerebro_IA/Projetos/SantanderML/\"*.md)"
+      "Bash(wc -l \"G:/Meu Drive/Meu_Workspace/Cerebro_IA/Projetos/SantanderML/\"*.md)",
+      "Bash(chmod +x C:\\\\Users\\\\SR.TR\\\\Desktop\\\\santander-ml-pipeline\\\\setup_enterprise.sh)"
     ]
   }
 }

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Union
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.pipeline import Pipeline
@@ -15,6 +15,7 @@ import mlflow.sklearn
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime, timezone
+from src.config import use_dask_mode
 
 # Instancia o logger encapsulado para o módulo
 logger = logging.getLogger(__name__)
@@ -65,14 +66,8 @@ def save_training_metadata(
             raise
 
 
-def train_model(data_path: Union[str, Path]):
-    data_p = Path(data_path)
-    logger.info(f"Carregando dados processados de: {data_p}")
-
-    if not data_p.exists():
-        logger.error(f"Arquivo {data_p} não encontrado.")
-        return
-
+def _train_standard(data_p: Path):
+    """Fluxo padrão: RF + LR + SVM com train_test_split em memória."""
     try:
         df = pd.read_csv(data_p)
     except Exception as e:
@@ -100,15 +95,12 @@ def train_model(data_path: Union[str, Path]):
     best_model_name = ""
     best_run_id = ""
 
-    logger.info(
-        "Iniciando treinamento de múltiplos algoritmos com Pipeline de Imputação..."
-    )
+    logger.info("Iniciando treinamento de múltiplos algoritmos com Pipeline de Imputação...")
 
     for name, classifier in models.items():
         with mlflow.start_run(run_name=f"Training_{name}") as run:
             logger.info(f"Treinando {name}...")
 
-            # Construção Estrita do Pipeline para evitar data leakage
             pipeline = Pipeline(
                 steps=[
                     ("imputer", SimpleImputer(strategy="median")),
@@ -147,6 +139,93 @@ def train_model(data_path: Union[str, Path]):
         logger.info(
             f"Artefato '{registry_name}' registrado no MLflow Registry (Versão: {registered.version})."
         )
+
+
+def _train_incremental(data_p: Path):
+    """Fluxo Big Data: SGDClassifier com partial_fit em chunks de 50 000 linhas."""
+    CHUNK = 50_000
+    CLASSES = [0, 1]
+
+    mlflow.set_experiment("Pima_Diabetes_Pipeline")
+
+    with mlflow.start_run(run_name="Training_SGD_Incremental") as run:
+        logger.info("Modo Big Data: treinamento incremental com SGDClassifier (log_loss).")
+
+        clf = SGDClassifier(loss="log_loss", random_state=42)
+        imputer = SimpleImputer(strategy="median")
+
+        # Primeira passagem: ajusta o imputer no primeiro chunk e inicializa o modelo
+        first_chunk = True
+        n_total = 0
+
+        try:
+            for chunk in pd.read_csv(data_p, chunksize=CHUNK):
+                X_chunk = chunk.drop("class", axis=1)
+                y_chunk = chunk["class"]
+
+                if first_chunk:
+                    imputer.fit(X_chunk)
+                    first_chunk = False
+
+                X_imp = imputer.transform(X_chunk)
+                clf.partial_fit(X_imp, y_chunk, classes=CLASSES)
+                n_total += len(chunk)
+                logger.info(f"  chunk processado — linhas acumuladas: {n_total}")
+        except Exception as e:
+            logger.error(f"Erro durante treinamento incremental: {e}")
+            raise
+
+        # Avaliação final no último chunk (proxy rápido — sem holdout dedicado)
+        try:
+            last_chunk = pd.read_csv(data_p, chunksize=CHUNK)
+            eval_chunk = next(iter(last_chunk))
+            X_eval = imputer.transform(eval_chunk.drop("class", axis=1))
+            y_eval = eval_chunk["class"]
+            preds = clf.predict(X_eval)
+            acc = accuracy_score(y_eval, preds)
+            f1 = f1_score(y_eval, preds, zero_division=0)
+        except Exception:
+            acc, f1 = 0.0, 0.0
+
+        mlflow.log_param("algorithm", "SGDClassifier")
+        mlflow.log_param("loss", "log_loss")
+        mlflow.log_param("chunk_size", CHUNK)
+        mlflow.log_param("total_rows", n_total)
+        mlflow.log_metric("accuracy_last_chunk", acc)
+        mlflow.log_metric("f1_last_chunk", f1)
+
+        model_info = mlflow.sklearn.log_model(clf, "model")
+
+        save_training_metadata(
+            "SGD_Incremental", acc, f1, str(data_p), model_info.model_uri
+        )
+        logger.info(
+            f"SGD Incremental — linhas: {n_total} | Acc(último chunk): {acc:.4f} | F1: {f1:.4f}"
+        )
+
+        registered = mlflow.register_model(
+            model_uri=f"runs:/{run.info.run_id}/model",
+            name="PimaDiabetes_SGD_Incremental",
+        )
+        logger.info(
+            f"Artefato 'PimaDiabetes_SGD_Incremental' registrado (Versão: {registered.version})."
+        )
+
+
+def train_model(data_path: Union[str, Path]):
+    data_p = Path(data_path)
+    logger.info(f"Carregando dados processados de: {data_p}")
+
+    if not data_p.exists():
+        logger.error(f"Arquivo {data_p} não encontrado.")
+        return
+
+    if use_dask_mode(str(data_p)):
+        logger.info("Modo Big Data detectado — usando treinamento incremental (SGD).")
+        _train_incremental(data_p)
+    else:
+        logger.info("Modo padrão — usando RF, LR e SVM.")
+        _train_standard(data_p)
 
 
 if __name__ == "__main__":

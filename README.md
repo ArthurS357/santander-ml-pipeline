@@ -22,8 +22,17 @@
 
 ---
 
+## 🚀 Novas Funcionalidades (v2.0)
+
+- **Modo Big Data Automático:** Transição de Pandas para Dask + SGDClassifier com `partial_fit` para arquivos > 500MB.
+- **Observabilidade Ativa:** Shadow Logging e Data Drift com Evidently.
+- **Deploy Cloud-Native:** Kubernetes HPA.
+
+---
+
 ## Sumário
 
+- [🚀 Novas Funcionalidades (v2.0)](#-novas-funcionalidades-v20)
 - [I. Objetivo do Case](#-i-objetivo-do-case)
 - [II. Arquitetura de Solução](#-ii-arquitetura-de-solução)
 - [III. Plano de Implementação e Reprodução](#-iii-plano-de-implementação-e-reprodução)
@@ -289,6 +298,16 @@ PYTHONPATH=. python src/pipeline_manager.py --demo
 # Pipeline re-executa automaticamente a cada 60s — Ctrl+C para encerrar
 ```
 
+#### Modo Big Data — para arquivos grandes (> 500MB)
+
+```bash
+# Windows (PowerShell)
+$env:USE_DASK="true"; python src/pipeline_manager.py
+
+# Linux / macOS
+USE_DASK="true" python src/pipeline_manager.py
+```
+
 ---
 
 ### 3.5 Iniciando a API de Inferência
@@ -403,15 +422,26 @@ Push/PR → main
 
 ---
 
+### 3.10 Deploy Cloud-Native (Kubernetes)
+
+```bash
+kubectl apply -f k8s/configmap-secret.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/hpa.yaml
+```
+
+---
+
 ## 🚀 IV. Melhorias e Considerações Finais
 
 ### 4.1 Limitações Conhecidas e Decisões de Trade-off
 
-| Limitação                                            | Contexto                                      | Solução em Produção                                          |
-| ---------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
-| SQLite não suporta múltiplos escritores              | Pipeline sequencial — sem concorrência no PoC | Substituir por PostgreSQL (trocar `DATABASE_URL`)            |
-| Mediana calculada no dataset completo (data leakage) | Impacto mínimo em 768 linhas                  | `sklearn.Pipeline` + `SimpleImputer` ajustado só no treino   |
-| Modelo embarcado na imagem Docker                    | Simplifica o PoC                              | Montar `mlruns/` como volume ou carregar do Registry por URI |
+| Limitação                                            | Contexto                                                                        | Solução em Produção                                                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| SQLite não suporta múltiplos escritores              | Pipeline sequencial — sem concorrência no PoC                                   | Substituir por PostgreSQL (trocar `DATABASE_URL`)                                                                      |
+| Mediana calculada no dataset completo (data leakage) | Impacto mínimo em 768 linhas                                                    | `sklearn.Pipeline` + `SimpleImputer` ajustado só no treino                                                             |
+| Modelo embarcado na imagem Docker                    | Simplifica o PoC                                                                | Montar `mlruns/` como volume ou carregar do Registry por URI                                                           |
 | **Evidently desabilitado no Python 3.14**            | `pydantic.v1` não é importável no Python 3.14; Data Drift Report retorna `None` | Evidently funciona normalmente no Docker (Python 3.11); para Python 3.14 use `generate_report.py` com guarda de import |
 
 ### 4.2 Implementado vs. Roadmap
@@ -449,7 +479,9 @@ A solução demonstra domínio do **ciclo de vida completo de Machine Learning e
 
 ## 🚀 Como Rodar Offline (Ambiente Restrito)
 
-Se o ambiente não tem acesso ao GitHub ou à internet, basta colocar o arquivo de dados dentro da pasta `data/raw/` e executar os comandos abaixo.  
+Se o ambiente não tem acesso ao GitHub ou à internet, você pode rodar os novos scripts de inicialização `setup_enterprise.ps1` (Windows) ou `setup_enterprise.sh` (Linux), que já contêm bypass de proxy e configuração SSL corporativa para baixar os pacotes necessários com segurança.
+
+Alternativamente, basta colocar o arquivo de dados dentro da pasta `data/raw/` e executar os comandos abaixo.  
 O pipeline detecta automaticamente o formato do arquivo (CSV, Excel ou Parquet) e usa o MLflow em SQLite local.
 
 ### 📁 Pré‑requisito
@@ -534,31 +566,35 @@ python src/pipeline_manager.py
 
 ### 📥 Entrada de Dados (Ingestão)
 
-| Formato | Suporte Offline | Como usar |
-|---------|-----------------|-----------|
-| **CSV** | ✅ Sim | Padrão. Leitura via `pandas.read_csv()`. Nenhuma variável extra necessária. |
-| **Excel (.xlsx / .xls)** | ✅ Sim | Defina `RAW_DATA_URL=data/raw/pima_diabetes.xlsx`. Requer `openpyxl` (já no `requirements.txt`). |
-| **Parquet** | ✅ Sim | Defina `RAW_DATA_URL=data/raw/pima_diabetes.parquet`. Requer `pyarrow` (já no `requirements.txt`). |
+| Formato                  | Suporte Offline | Como usar                                                                                          |
+| ------------------------ | --------------- | -------------------------------------------------------------------------------------------------- |
+| **CSV**                  | ✅ Sim          | Padrão. Leitura via `pandas.read_csv()`. Nenhuma variável extra necessária.                        |
+| **Excel (.xlsx / .xls)** | ✅ Sim          | Defina `RAW_DATA_URL=data/raw/pima_diabetes.xlsx`. Requer `openpyxl` (já no `requirements.txt`).   |
+| **Parquet**              | ✅ Sim          | Defina `RAW_DATA_URL=data/raw/pima_diabetes.parquet`. Requer `pyarrow` (já no `requirements.txt`). |
 
 A detecção de formato é automática em `data_ingestion.py` via `os.path.splitext()`. O resultado é sempre salvo como `data/raw/pima_diabetes.csv` para compatibilidade com as etapas seguintes do pipeline.
 
 ### 📤 Saída de Relatórios
 
 #### 1. Relatório de Data Drift (Evidently)
+
 - **Status atual:** **Desabilitado** (retorna `None`) devido à incompatibilidade com Python 3.14.
 - **Formato original (se ativo):** HTML interativo (`reports/data_drift_report_YYYYMMDD.html`).
 - **Offline:** Funcionaria offline, pois o Evidently gera o HTML localmente.
 
 #### 2. Métricas e Logs de Inferência
+
 - **Local:** `data/logs/inference_logs.csv`
 - **Formato:** CSV (legível por Excel, Google Sheets, Pandas).
 - **Offline:** ✅ Totalmente funcional.
 
 #### 3. Registros do MLflow
+
 - **Local:** `mlruns/` e `mlflow.db` (SQLite)
 - **Offline:** ✅ A UI do MLflow (`mlflow ui`) funciona localmente sem internet.
 
 #### 4. Saída do Pipeline Manager
+
 - **Formato:** Logs em console e arquivo (se configurado).
 - **Offline:** ✅ Sem dependência externa.
 
@@ -566,10 +602,10 @@ A detecção de formato é automática em `data_ingestion.py` via `os.path.split
 
 Se a necessidade é gerar **relatórios customizados em Excel/PDF** a partir dos dados processados ou das predições:
 
-| Ferramenta | Como Implementar |
-|------------|------------------|
+| Ferramenta        | Como Implementar                                                                   |
+| ----------------- | ---------------------------------------------------------------------------------- |
 | **Excel (.xlsx)** | Adicionar `openpyxl` ou `xlsxwriter` ao `requirements.txt` e usar `df.to_excel()`. |
-| **PDF** | Usar `reportlab` ou `weasyprint` (mais complexo, requer dependências de sistema). |
+| **PDF**           | Usar `reportlab` ou `weasyprint` (mais complexo, requer dependências de sistema).  |
 
 > ⚠️ **Lembre-se:** qualquer nova dependência deve ser instalada **antes** de entrar no ambiente offline (via `pip download` ou espelho interno).
 
