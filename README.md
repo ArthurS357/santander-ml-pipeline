@@ -4,7 +4,7 @@
 
 ### Case de Certificação — Academia Santander · Engenharia de Machine Learning
 
-[![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![MLflow](https://img.shields.io/badge/MLflow-3.10-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
@@ -159,7 +159,7 @@ graph LR
 ```
 santander-ml-pipeline/
 ├── src/
-│   ├── data_ingestion.py     # Etapa 1 — Download e persistência de dados brutos
+│   ├── data_ingestion.py     # Etapa 1 — Ingestão multi-formato: CSV, Excel (.xlsx/.xls) e Parquet
 │   ├── preprocessing.py      # Etapa 2 — Limpeza e imputação por mediana
 │   ├── train.py              # Etapa 3 — Treino multi-modelo + MLflow + SQLite
 │   ├── generate_report.py    # Etapa 4 — Data Drift Report (Evidently AI)
@@ -194,7 +194,9 @@ santander-ml-pipeline/
 | Git                 | Qualquer      | `git --version`    |
 | Docker _(opcional)_ | 20+           | `docker --version` |
 
-> **Atenção:** Os pacotes em `requirements.txt` exigem Python ≥ 3.11. O Dockerfile e o workflow de CI/CD já estão configurados com Python 3.11.
+> **Atenção:** Os pacotes em `requirements.txt` exigem Python ≥ 3.11. O Dockerfile e o workflow de CI/CD estão configurados com Python 3.11.
+>
+> **Nota Python 3.14:** O pipeline foi testado e é compatível com Python 3.14, com uma única exceção: o pacote **Evidently** foi desabilitado por incompatibilidade com `pydantic.v1` nessa versão. Todas as demais funcionalidades (ingestão, pré-processamento, treinamento, API, MLflow) operam normalmente.
 
 ---
 
@@ -410,7 +412,7 @@ Push/PR → main
 | SQLite não suporta múltiplos escritores              | Pipeline sequencial — sem concorrência no PoC | Substituir por PostgreSQL (trocar `DATABASE_URL`)            |
 | Mediana calculada no dataset completo (data leakage) | Impacto mínimo em 768 linhas                  | `sklearn.Pipeline` + `SimpleImputer` ajustado só no treino   |
 | Modelo embarcado na imagem Docker                    | Simplifica o PoC                              | Montar `mlruns/` como volume ou carregar do Registry por URI |
-| Evidently incompatível com Python 3.14               | `pydantic.v1` quebra no 3.14                  | Import com guarda — funciona no Docker (Python 3.11)         |
+| **Evidently desabilitado no Python 3.14**            | `pydantic.v1` não é importável no Python 3.14; Data Drift Report retorna `None` | Evidently funciona normalmente no Docker (Python 3.11); para Python 3.14 use `generate_report.py` com guarda de import |
 
 ### 4.2 Implementado vs. Roadmap
 
@@ -447,15 +449,17 @@ A solução demonstra domínio do **ciclo de vida completo de Machine Learning e
 
 ## 🚀 Como Rodar Offline (Ambiente Restrito)
 
-Se o ambiente não tem acesso ao GitHub ou à internet, basta colocar o arquivo `pima_diabetes.csv` dentro da pasta `data/raw/` e executar os comandos abaixo.  
-O pipeline ignorará a etapa de download e usará o MLflow em SQLite local.
+Se o ambiente não tem acesso ao GitHub ou à internet, basta colocar o arquivo de dados dentro da pasta `data/raw/` e executar os comandos abaixo.  
+O pipeline detecta automaticamente o formato do arquivo (CSV, Excel ou Parquet) e usa o MLflow em SQLite local.
 
 ### 📁 Pré‑requisito
 
-Certifique‑se de que o dataset existe localmente:
+Certifique‑se de que o dataset existe localmente em um dos formatos suportados:
 
 ```
-data/raw/pima_diabetes.csv
+data/raw/pima_diabetes.csv      ← padrão (fallback)
+data/raw/pima_diabetes.xlsx     ← Excel (aponta via RAW_DATA_URL)
+data/raw/pima_diabetes.parquet  ← Parquet (aponta via RAW_DATA_URL)
 ```
 
 ### 💻 Execução
@@ -463,7 +467,19 @@ data/raw/pima_diabetes.csv
 **Windows (PowerShell)**
 
 ```powershell
-$env:RAW_DATA_URL = ""
+# CSV (padrão — RAW_DATA_URL omitido usa o fallback)
+$env:MLFLOW_TRACKING_URI = "sqlite:///./mlflow.db"
+$env:PYTHONPATH = "."
+venv\Scripts\python.exe src/pipeline_manager.py
+
+# Excel
+$env:RAW_DATA_URL = "data/raw/pima_diabetes.xlsx"
+$env:MLFLOW_TRACKING_URI = "sqlite:///./mlflow.db"
+$env:PYTHONPATH = "."
+venv\Scripts\python.exe src/pipeline_manager.py
+
+# Parquet
+$env:RAW_DATA_URL = "data/raw/pima_diabetes.parquet"
 $env:MLFLOW_TRACKING_URI = "sqlite:///./mlflow.db"
 $env:PYTHONPATH = "."
 venv\Scripts\python.exe src/pipeline_manager.py
@@ -472,15 +488,90 @@ venv\Scripts\python.exe src/pipeline_manager.py
 **Linux / macOS (bash/zsh)**
 
 ```bash
-export RAW_DATA_URL=""
+# CSV (padrão)
+export MLFLOW_TRACKING_URI="sqlite:///./mlflow.db"
+export PYTHONPATH="."
+python src/pipeline_manager.py
+
+# Excel
+RAW_DATA_URL="data/raw/pima_diabetes.xlsx" MLFLOW_TRACKING_URI="sqlite:///./mlflow.db" PYTHONPATH="." python src/pipeline_manager.py
+
+# Parquet
+RAW_DATA_URL="data/raw/pima_diabetes.parquet" MLFLOW_TRACKING_URI="sqlite:///./mlflow.db" PYTHONPATH="." python src/pipeline_manager.py
+```
+
+- `RAW_DATA_URL` → caminho do arquivo de entrada; se omitido, usa `data/raw/pima_diabetes.csv`.
+- `MLFLOW_TRACKING_URI=sqlite:///./mlflow.db` → evitar servidor remoto.
+- `PYTHONPATH="."` → importar módulos do projeto.
+
+### 🏔️ Modo Caverna — Economia de Tokens
+
+Para ambientes com restrição severa (sem rede, sem LLM externo, sem telemetria), exporte todas as variáveis de uma vez antes de executar:
+
+**Windows (PowerShell)**
+
+```powershell
+$env:RAW_DATA_URL        = "data/raw/pima_diabetes.csv"
+$env:MLFLOW_TRACKING_URI = "sqlite:///./mlflow.db"
+$env:PYTHONPATH          = "."
+venv\Scripts\python.exe src/pipeline_manager.py
+```
+
+**Linux / macOS**
+
+```bash
+export RAW_DATA_URL="data/raw/pima_diabetes.csv"
 export MLFLOW_TRACKING_URI="sqlite:///./mlflow.db"
 export PYTHONPATH="."
 python src/pipeline_manager.py
 ```
 
-- `RAW_DATA_URL=""` → forçar leitura do arquivo local.
-- `MLFLOW_TRACKING_URI=sqlite:///./mlflow.db` → evitar servidor remoto.
-- `PYTHONPATH="."` → importar módulos do projeto.
+> Neste modo, o pipeline opera 100% offline: lê o arquivo local, treina, registra artefatos no SQLite e encerra — sem chamadas externas.
+
+---
+
+## 📂 Formatos de Dados Suportados (Offline)
+
+### 📥 Entrada de Dados (Ingestão)
+
+| Formato | Suporte Offline | Como usar |
+|---------|-----------------|-----------|
+| **CSV** | ✅ Sim | Padrão. Leitura via `pandas.read_csv()`. Nenhuma variável extra necessária. |
+| **Excel (.xlsx / .xls)** | ✅ Sim | Defina `RAW_DATA_URL=data/raw/pima_diabetes.xlsx`. Requer `openpyxl` (já no `requirements.txt`). |
+| **Parquet** | ✅ Sim | Defina `RAW_DATA_URL=data/raw/pima_diabetes.parquet`. Requer `pyarrow` (já no `requirements.txt`). |
+
+A detecção de formato é automática em `data_ingestion.py` via `os.path.splitext()`. O resultado é sempre salvo como `data/raw/pima_diabetes.csv` para compatibilidade com as etapas seguintes do pipeline.
+
+### 📤 Saída de Relatórios
+
+#### 1. Relatório de Data Drift (Evidently)
+- **Status atual:** **Desabilitado** (retorna `None`) devido à incompatibilidade com Python 3.14.
+- **Formato original (se ativo):** HTML interativo (`reports/data_drift_report_YYYYMMDD.html`).
+- **Offline:** Funcionaria offline, pois o Evidently gera o HTML localmente.
+
+#### 2. Métricas e Logs de Inferência
+- **Local:** `data/logs/inference_logs.csv`
+- **Formato:** CSV (legível por Excel, Google Sheets, Pandas).
+- **Offline:** ✅ Totalmente funcional.
+
+#### 3. Registros do MLflow
+- **Local:** `mlruns/` e `mlflow.db` (SQLite)
+- **Offline:** ✅ A UI do MLflow (`mlflow ui`) funciona localmente sem internet.
+
+#### 4. Saída do Pipeline Manager
+- **Formato:** Logs em console e arquivo (se configurado).
+- **Offline:** ✅ Sem dependência externa.
+
+### 🔄 Adaptação para Outros Relatórios
+
+Se a necessidade é gerar **relatórios customizados em Excel/PDF** a partir dos dados processados ou das predições:
+
+| Ferramenta | Como Implementar |
+|------------|------------------|
+| **Excel (.xlsx)** | Adicionar `openpyxl` ou `xlsxwriter` ao `requirements.txt` e usar `df.to_excel()`. |
+| **PDF** | Usar `reportlab` ou `weasyprint` (mais complexo, requer dependências de sistema). |
+
+> ⚠️ **Lembre-se:** qualquer nova dependência deve ser instalada **antes** de entrar no ambiente offline (via `pip download` ou espelho interno).
 
 ---
 
