@@ -6,7 +6,8 @@ WORKDIR /app
 
 # Copia a lista de dependências e instala
 COPY requirements.txt .
-ARG PIP_INDEX_URL=http://internal-pypi/simple
+# PIP_INDEX_URL pode ser sobrescrito via --build-arg para ambientes com mirror interno
+ARG PIP_INDEX_URL=https://pypi.org/simple
 RUN pip install --no-cache-dir --index-url ${PIP_INDEX_URL} -r requirements.txt
 
 # Copia todo o restante do código do projeto
