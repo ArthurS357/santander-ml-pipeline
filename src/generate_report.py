@@ -32,7 +32,7 @@ try:
     from evidently.metric_preset import DataDriftPreset  # type: ignore[import-untyped]
 
     _EVIDENTLY_AVAILABLE = True
-except Exception as _evidently_import_error:
+except Exception:
     # Falha em Python >=3.14: evidently usa pydantic.v1 que quebra nessa versão.
     # Em produção (Dockerfile python:3.11-slim) o import funciona normalmente.
     Report = None  # type: ignore[assignment,misc]
