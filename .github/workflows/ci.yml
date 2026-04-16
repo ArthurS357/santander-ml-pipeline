@@ -27,10 +27,12 @@ jobs:
 
     env:
       PYTHONPATH: "."
-      # Imagem Docker — lowercase obrigatório para GHCR
-      IMAGE_NAME: ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api
 
     steps:
+      - name: Define lowercase image name
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/pima-diabetes-api" >> $GITHUB_ENV
+
       # =================================================================
       # 1. Setup do Ambiente
       # =================================================================
@@ -117,6 +119,7 @@ jobs:
       - name: Build Docker Image
         run: |
           docker build \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             -t ${{ env.IMAGE_NAME }}:latest \
             -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
             .
