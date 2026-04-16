@@ -22,7 +22,9 @@ def generate_data_drift_report() -> str | None:
     """
     Geração de relatório de data drift desabilitada (incompatível com Python 3.14).
     """
-    logger.warning("Data drift report desabilitado — Evidently incompatível com Python 3.14 offline.")
+    logger.warning(
+        "Data drift report desabilitado — Evidently incompatível com Python 3.14 offline."
+    )
     return None
 
 

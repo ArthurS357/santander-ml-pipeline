@@ -30,9 +30,11 @@ def preprocess_data(
     try:
         if big:
             import dask.dataframe as dd
+
             df = dd.read_csv(input_p, assume_missing=True)
         else:
             import pandas as pd
+
             df = pd.read_csv(input_p)
     except FileNotFoundError:
         logger.error(f"Arquivo de entrada não encontrado: {input_p}")
@@ -49,7 +51,9 @@ def preprocess_data(
 
     df[colunas_presentes] = df[colunas_presentes].replace(0, float("nan"))
 
-    logger.info("Valores ausentes mapeados para NaN. Imputação delegada ao ML Pipeline.")
+    logger.info(
+        "Valores ausentes mapeados para NaN. Imputação delegada ao ML Pipeline."
+    )
 
     try:
         output_p.parent.mkdir(parents=True, exist_ok=True)

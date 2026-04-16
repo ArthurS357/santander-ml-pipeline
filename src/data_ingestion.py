@@ -20,6 +20,7 @@ def load_data(file_path: str) -> pd.DataFrame:
     if ext == ".parquet":
         if big:
             import dask.dataframe as dd
+
             ddf = dd.read_parquet(file_path)
             if len(ddf.columns) == len(colunas):
                 ddf.columns = colunas
@@ -32,6 +33,7 @@ def load_data(file_path: str) -> pd.DataFrame:
     # CSV (padrão)
     if big:
         import dask.dataframe as dd
+
         ddf = dd.read_csv(file_path, names=colunas, header=0, assume_missing=True)
         return ddf.compute()
 

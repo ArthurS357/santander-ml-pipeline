@@ -95,7 +95,9 @@ def _train_standard(data_p: Path):
     best_model_name = ""
     best_run_id = ""
 
-    logger.info("Iniciando treinamento de múltiplos algoritmos com Pipeline de Imputação...")
+    logger.info(
+        "Iniciando treinamento de múltiplos algoritmos com Pipeline de Imputação..."
+    )
 
     for name, classifier in models.items():
         with mlflow.start_run(run_name=f"Training_{name}") as run:
@@ -149,7 +151,9 @@ def _train_incremental(data_p: Path):
     mlflow.set_experiment("Pima_Diabetes_Pipeline")
 
     with mlflow.start_run(run_name="Training_SGD_Incremental") as run:
-        logger.info("Modo Big Data: treinamento incremental com SGDClassifier (log_loss).")
+        logger.info(
+            "Modo Big Data: treinamento incremental com SGDClassifier (log_loss)."
+        )
 
         clf = SGDClassifier(loss="log_loss", random_state=42)
         imputer = SimpleImputer(strategy="median")
