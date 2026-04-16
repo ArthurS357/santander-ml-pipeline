@@ -8,15 +8,18 @@ from src.train import train_model
 from src.generate_report import generate_data_drift_report
 
 # Configuração de Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
 
 class MLPipelineOrchestrator:
     """
     Orquestrador de Pipeline de ML (Simulação de DAG).
     Fluxo: Ingestão -> Pré-processamento -> Treinamento -> Monitoramento -> Reporting.
     """
-    
+
     def __init__(self):
         self.raw_data_url = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv"
         self.raw_data_path = "data/raw/pima_diabetes.csv"
@@ -78,17 +81,20 @@ class MLPipelineOrchestrator:
         """
         logger.info("=== Iniciando execução do Pipeline de ML ===")
         start_time = time.time()
-        
+
         success = self.run_ingestion()
         if success:
             success = self.run_preprocessing()
         if success:
             success = self.run_training()
-            
+
         if success:
-            logger.info(f"=== Pipeline finalizado com SUCESSO em {time.time() - start_time:.2f}s ===")
+            logger.info(
+                f"=== Pipeline finalizado com SUCESSO em {time.time() - start_time:.2f}s ==="
+            )
         else:
             logger.error("=== Pipeline finalizado com FALHA ===")
+
 
 def schedule_pipeline(demo_mode: bool = False):
     orchestrator = MLPipelineOrchestrator()
@@ -100,7 +106,9 @@ def schedule_pipeline(demo_mode: bool = False):
         schedule.every(2).minutes.do(orchestrator.run_reporting)
     else:
         # Modo produção: pipeline a cada 24h, report todo dia à meia-noite
-        logger.info("Modo PRODUÇÃO: pipeline a cada 24h | report diariamente à meia-noite.")
+        logger.info(
+            "Modo PRODUÇÃO: pipeline a cada 24h | report diariamente à meia-noite."
+        )
         schedule.every(24).hours.do(orchestrator.run_pipeline)
         schedule.every().day.at("00:00").do(orchestrator.run_reporting)
 
@@ -112,8 +120,10 @@ def schedule_pipeline(demo_mode: bool = False):
         schedule.run_pending()
         time.sleep(1)
 
+
 if __name__ == "__main__":
     import sys
+
     args = sys.argv[1:]
 
     if "--demo" in args or "--schedule" in args:

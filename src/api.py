@@ -11,17 +11,20 @@ from pathlib import Path
 from prometheus_fastapi_instrumentator import Instrumentator
 
 # Configuração de Logging para Observabilidade
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger("DiabetesAPI")
 
 # Passo 1: Inicializar o aplicativo FastAPI
 app = FastAPI(
-    title="Diabetes Prediction API", 
-    description="API para previsão de diabetes com monitoramento em tempo real (Observabilidade)"
+    title="Diabetes Prediction API",
+    description="API para previsão de diabetes com monitoramento em tempo real (Observabilidade)",
 )
 
 # Instrumentação para Prometheus (Métricas de monitoramento em tempo real)
 Instrumentator().instrument(app).expose(app)
+
 
 # Passo 2: Definir a estrutura dos dados de entrada
 class PatientData(BaseModel):
@@ -33,6 +36,7 @@ class PatientData(BaseModel):
     mass: float
     pedi: float
     age: float
+
 
 # Passo 3: Carregar o modelo treinado (Lógica Robusta)
 modelo = None
@@ -63,13 +67,17 @@ def load_latest_model():
     model_uri_env = os.getenv("MODEL_URI")
     if model_uri_env:
         try:
-            logger.info(f"MODEL_URI detectado. Carregando modelo remoto de: {model_uri_env}")
+            logger.info(
+                f"MODEL_URI detectado. Carregando modelo remoto de: {model_uri_env}"
+            )
             modelo = mlflow.sklearn.load_model(model_uri_env)
             modelo_path = model_uri_env
             logger.info("Modelo remoto carregado com sucesso!")
             return modelo
         except Exception as e:
-            logger.error(f"Falha ao carregar modelo via MODEL_URI '{model_uri_env}': {e}")
+            logger.error(
+                f"Falha ao carregar modelo via MODEL_URI '{model_uri_env}': {e}"
+            )
             return None
 
     # --- Estratégia 2: Fallback local (Desenvolvimento / CI) ---
@@ -107,7 +115,19 @@ load_latest_model()
 INFERENCE_LOG_FILE = os.getenv("INFERENCE_LOG_FILE", "data/logs/inference_logs.csv")
 _log_lock = threading.Lock()
 
-LOG_FIELDNAMES = ["timestamp", "preg", "plas", "pres", "skin", "test", "mass", "pedi", "age", "prediction", "probability"]
+LOG_FIELDNAMES = [
+    "timestamp",
+    "preg",
+    "plas",
+    "pres",
+    "skin",
+    "test",
+    "mass",
+    "pedi",
+    "age",
+    "prediction",
+    "probability",
+]
 
 
 def log_prediction(input_data: dict, prediction: int, probability: float) -> None:
@@ -133,17 +153,24 @@ def log_prediction(input_data: dict, prediction: int, probability: float) -> Non
                 writer.writeheader()
             writer.writerow(row)
 
-    logger.debug(f"Inferência registrada: prediction={prediction}, prob={probability:.4f}")
+    logger.debug(
+        f"Inferência registrada: prediction={prediction}, prob={probability:.4f}"
+    )
 
 
 # Passo 4: Criar o endpoint de predição
 @app.post("/predict")
-async def predict(data: PatientData, request: Request, background_tasks: BackgroundTasks):
+async def predict(
+    data: PatientData, request: Request, background_tasks: BackgroundTasks
+):
     start_time = time.time()
-    
+
     if modelo is None:
-        raise HTTPException(status_code=503, detail="Modelo não carregado. Execute o pipeline de treinamento primeiro.")
-    
+        raise HTTPException(
+            status_code=503,
+            detail="Modelo não carregado. Execute o pipeline de treinamento primeiro.",
+        )
+
     # Log de Entrada (Observabilidade: Rastreabilidade)
     client_ip = request.client.host
     logger.info(f"Requisição de predição recebida de {client_ip}")
@@ -153,18 +180,26 @@ async def predict(data: PatientData, request: Request, background_tasks: Backgro
         input_dict = data.dict()
     except AttributeError:
         input_dict = data.model_dump()
-        
+
     df_entrada = pd.DataFrame([input_dict])
-    
+
     # Realizando predição
     predicao = modelo.predict(df_entrada)
-    probabilidade = modelo.predict_proba(df_entrada).max() if hasattr(modelo, "predict_proba") else 1.0
-    
-    resultado = "Positivo para Diabetes" if predicao[0] == 1 else "Negativo para Diabetes"
-    
+    probabilidade = (
+        modelo.predict_proba(df_entrada).max()
+        if hasattr(modelo, "predict_proba")
+        else 1.0
+    )
+
+    resultado = (
+        "Positivo para Diabetes" if predicao[0] == 1 else "Negativo para Diabetes"
+    )
+
     # Log de Saída e Performance (Observabilidade)
     latency = time.time() - start_time
-    logger.info(f"Predição: {resultado} | Confiança: {probabilidade:.2f} | Latência: {latency:.4f}s")
+    logger.info(
+        f"Predição: {resultado} | Confiança: {probabilidade:.2f} | Latência: {latency:.4f}s"
+    )
 
     # Big Data Logging: registra a inferência em background (sem impactar latência)
     background_tasks.add_task(
@@ -178,8 +213,9 @@ async def predict(data: PatientData, request: Request, background_tasks: Backgro
         "predicao": resultado,
         "confianca": round(float(probabilidade), 4),
         "modelo_versao": _get_model_version_id(),
-        "latencia_s": round(latency, 4)
+        "latencia_s": round(latency, 4),
     }
+
 
 @app.get("/")
 def health_check():
@@ -187,8 +223,9 @@ def health_check():
         "status": "API ativa",
         "modelo_carregado": modelo is not None,
         "modelo_versao": _get_model_version_id(),
-        "metrics_endpoint": "/metrics"
+        "metrics_endpoint": "/metrics",
     }
+
 
 @app.post("/reload_model")
 def reload_model():

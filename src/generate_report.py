@@ -30,6 +30,7 @@ _EVIDENTLY_AVAILABLE = False
 try:
     from evidently.report import Report  # type: ignore[import-untyped]
     from evidently.metric_preset import DataDriftPreset  # type: ignore[import-untyped]
+
     _EVIDENTLY_AVAILABLE = True
 except Exception as _evidently_import_error:
     # Falha em Python >=3.14: evidently usa pydantic.v1 que quebra nessa versão.
@@ -222,13 +223,19 @@ def generate_data_drift_report() -> str | None:
     # ------------------------------------------------------------------
     drift_share = _extract_drift_share(report)
     if drift_share is not None:
-        logger.info(f"Drift share detectado: {drift_share:.2%} (threshold: {DRIFT_THRESHOLD:.2%})")
+        logger.info(
+            f"Drift share detectado: {drift_share:.2%} (threshold: {DRIFT_THRESHOLD:.2%})"
+        )
         if drift_share > DRIFT_THRESHOLD:
             send_alert(drift_share=drift_share, report_path=report_path)
         else:
-            logger.info("✅ Drift dentro dos limites aceitáveis. Nenhum alerta disparado.")
+            logger.info(
+                "✅ Drift dentro dos limites aceitáveis. Nenhum alerta disparado."
+            )
     else:
-        logger.warning("Não foi possível extrair o drift_share — verificação de alertas ignorada.")
+        logger.warning(
+            "Não foi possível extrair o drift_share — verificação de alertas ignorada."
+        )
 
     return report_path
 
