@@ -1,0 +1,99 @@
+###############################################################################
+# Docker Compose — Stack de Observabilidade (Santander ML Pipeline)
+#
+# Sobe Prometheus + Grafana isolados da aplicação.
+# Uso:
+#   docker-compose -f docker-compose.observability.yml up -d
+#
+# Pré-requisito: a API FastAPI deve estar rodando e acessível.
+# Para rodar tudo junto, use --profile ou compose merge:
+#   docker-compose -f docker-compose.observability.yml \
+#                  -f docker-compose.yml up -d
+###############################################################################
+
+version: "3.9"
+
+networks:
+  observability:
+    name: santander-observability
+    driver: bridge
+
+volumes:
+  prometheus_data:
+    name: santander-prometheus-data
+  grafana_data:
+    name: santander-grafana-data
+
+services:
+  # =========================================================================
+  # ML API (referência para scrape — build local)
+  # =========================================================================
+  ml-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: santander-ml-api
+    ports:
+      - "8000:8000"
+    environment:
+      - MLFLOW_TRACKING_URI=http://servidor-mlflow:5000
+      - MODEL_URI=
+      - DATABASE_URL=sqlite:///./training_history.db
+      - PROCESSED_DATA_FILE=data/processed/pima_diabetes_processed.csv
+      - INFERENCE_LOG_FILE=data/logs/inference_logs.csv
+      - DRIFT_THRESHOLD=0.5
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - observability
+
+  # =========================================================================
+  # Prometheus — Coleta e armazenamento de métricas (TSDB)
+  # =========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: santander-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"           # Permite reload via POST /-/reload
+    depends_on:
+      ml-api:
+        condition: service_healthy
+    networks:
+      - observability
+
+  # =========================================================================
+  # Grafana — Visualização de dashboards e alertas
+  # =========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: santander-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Credenciais padrão (altere em produção via secrets)
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=santander2026
+      # Datasource provisionada automaticamente
+      - GF_DATASOURCES_DEFAULT_NAME=Prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - observability

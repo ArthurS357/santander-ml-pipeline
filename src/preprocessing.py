@@ -1,33 +1,73 @@
+import os
 import pandas as pd
 import numpy as np
-import os
+import logging
+from pathlib import Path
+from typing import Union
 
-def preprocess_data(input_path: str, output_path: str):
+# Criação do logger encapsulado ao módulo (sem basicConfig global)
+logger = logging.getLogger(__name__)
+
+
+def preprocess_data(
+    input_path: Union[str, Path], output_path: Union[str, Path]
+) -> None:
     """
-    Lê os dados brutos, trata valores ausentes (zeros) e salva os dados processados.
+    Lê os dados brutos, marca valores nulos clinicamente inválidos como NaN e salva.
+    A imputação estatística foi delegada ao pipeline de treino para evitar data leakage.
     """
-    print(f"Lendo dados brutos de: {input_path}")
-    df = pd.read_csv(input_path)
-    
-    # Colunas onde o valor 0 é na verdade um dado ausente (ex: Pressão Arterial 0 não existe)
-    colunas_com_zeros = ['plas', 'pres', 'skin', 'test', 'mass']
-    
-    # Passo 1: Substituir 0 por NaN para facilitar o tratamento
-    df[colunas_com_zeros] = df[colunas_com_zeros].replace(0, np.nan)
-    
-    # Passo 2: Preencher os valores NaN com a mediana de cada coluna
-    for col in colunas_com_zeros:
-        mediana = df[col].median()
-        df[col] = df[col].fillna(mediana)
-    
-    print("Valores ausentes tratados com a mediana.")
-    
-    # Passo 3: Garantir que a pasta de destino exista e salvar o arquivo
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    df.to_csv(output_path, index=False)
-    print(f"Dados processados salvos em: {output_path}")
+    input_p = Path(input_path)
+    output_p = Path(output_path)
+
+    logger.info(f"Iniciando pré-processamento. Lendo dados brutos de: {input_p}")
+
+    try:
+        df = pd.read_csv(input_p)
+    except FileNotFoundError:
+        logger.error(f"Arquivo de entrada não encontrado: {input_p}")
+        raise
+    except pd.errors.EmptyDataError:
+        logger.error(f"O arquivo de entrada está vazio: {input_p}")
+        raise
+
+    # Tratamento de valores ausentes mascarados como zero
+    colunas_com_zeros = ["plas", "pres", "skin", "test", "mass"]
+
+    # Verifica se as colunas esperadas realmente existem no DataFrame para evitar KeyError
+    colunas_presentes = [col for col in colunas_com_zeros if col in df.columns]
+    if len(colunas_presentes) != len(colunas_com_zeros):
+        logger.warning(
+            "Algumas colunas esperadas para tratamento de zeros não foram encontradas no dataset."
+        )
+
+    df[colunas_presentes] = df[colunas_presentes].replace(0, np.nan)
+
+    logger.info(
+        "Valores ausentes mapeados para NaN. Imputação delegada ao ML Pipeline."
+    )
+
+    # Garantir que a pasta de destino exista e salvar o arquivo de forma segura
+    try:
+        output_p.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(output_p, index=False)
+        logger.info(f"Dados processados salvos com sucesso em: {output_p}")
+    except PermissionError:
+        logger.error(f"Permissão negada ao tentar salvar o arquivo em: {output_p}")
+        raise
+
 
 if __name__ == "__main__":
-    INPUT_FILE = "data/raw/pima_diabetes.csv"
-    OUTPUT_FILE = "data/processed/pima_diabetes_processed.csv"
+    # Configuração de log restrita à execução do script como main
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    # Lê os caminhos de entrada e saída de variáveis de ambiente.
+    # Em produção, permitem apontar para volumes partilhados ou cloud storage.
+    _default_input = "data/raw/pima_diabetes.csv"
+    _default_output = "data/processed/pima_diabetes_processed.csv"
+    INPUT_FILE = Path(os.getenv("RAW_DATA_FILE", _default_input))
+    OUTPUT_FILE = Path(os.getenv("PROCESSED_DATA_FILE", _default_output))
+
     preprocess_data(INPUT_FILE, OUTPUT_FILE)

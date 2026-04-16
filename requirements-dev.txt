@@ -1,0 +1,16 @@
+# ===========================================================================
+# Dependências de Desenvolvimento / CI (Shift-Left Security)
+# Instale com: pip install -r requirements-dev.txt
+# ===========================================================================
+
+# Formatação de código (PEP 8 estrito)
+black>=24.0.0
+
+# Linting estático (complexidade, imports, estilo)
+flake8>=7.0.0
+
+# Análise estática de vulnerabilidades de segurança (SAST)
+bandit>=1.7.0
+
+# Testes (já em requirements.txt, listado aqui para execução isolada de CI)
+pytest>=9.0.0

@@ -1,0 +1,37 @@
+# ============================================================
+# .dockerignore — Santander ML Pipeline
+# Exclui artefatos que não devem fazer parte da imagem Docker.
+# O modelo de ML deve ser carregado em runtime via MODEL_URI.
+# ============================================================
+
+# --- Artefatos de MLflow e Banco de Dados de Treinamento ---
+# CRÍTICO: Desacopla os pesos do modelo do build da imagem.
+# Em produção, configure MODEL_URI e MLFLOW_TRACKING_URI.
+mlruns/
+training_history.db
+training_history.db-journal
+mlflow.db
+
+# --- Ambiente Virtual e Cache Python ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Dados Brutos e Processados (carregados em runtime ou via volume) ---
+data/
+
+# --- Controle de Versão e Ferramentas de Desenvolvimento ---
+.git/
+.gitignore
+.github/
+
+# --- Artefatos de Testes e Relatórios ---
+test_results.txt
+*.log
+
+# --- Configurações de IDEs e ferramentas locais ---
+.vscode/
+.idea/
+.claude/

@@ -1,0 +1,60 @@
+###############################################################################
+# Horizontal Pod Autoscaler — Santander ML Pipeline API
+#
+# Escala automaticamente o Deployment entre 3 e 10 réplicas baseado em
+# utilização de CPU (70%) e Memória (80%).
+#
+# Pré-requisito: Metrics Server instalado no cluster.
+#   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+###############################################################################
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: santander-ml-api-hpa
+  labels:
+    app: santander-ml-api
+    project: santander-ml-pipeline
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: santander-ml-api
+
+  minReplicas: 3
+  maxReplicas: 10
+
+  metrics:
+    # -----------------------------------------------------------------------
+    # CPU: escala quando a utilização MÉDIA ultrapassa 70%
+    # -----------------------------------------------------------------------
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # -----------------------------------------------------------------------
+    # Memória: escala quando a utilização MÉDIA ultrapassa 80%
+    # -----------------------------------------------------------------------
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+  # Comportamento de scaling — evita flapping (oscilação frequente)
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60       # Espera 60s antes de escalar para cima
+      policies:
+        - type: Pods
+          value: 2                          # Máximo 2 pods de uma vez
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300      # Espera 5 min antes de reduzir réplicas
+      policies:
+        - type: Pods
+          value: 1                          # Remove 1 pod por vez
+          periodSeconds: 120

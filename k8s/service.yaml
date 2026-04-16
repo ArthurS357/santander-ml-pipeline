@@ -1,0 +1,20 @@
+###############################################################################
+# Kubernetes Service — Santander ML Pipeline API
+# LoadBalancer para expor a API externamente (porta 80 → 8000).
+###############################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: santander-ml-api-service
+  labels:
+    app: santander-ml-api
+    project: santander-ml-pipeline
+spec:
+  type: LoadBalancer
+  selector:
+    app: santander-ml-api
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 8000

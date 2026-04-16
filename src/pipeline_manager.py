@@ -5,6 +5,7 @@ import logging
 from src.data_ingestion import load_and_save_data
 from src.preprocessing import preprocess_data
 from src.train import train_model
+from src.generate_report import generate_data_drift_report
 
 # Configuração de Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 class MLPipelineOrchestrator:
     """
     Orquestrador de Pipeline de ML (Simulação de DAG).
-    Fluxo: Ingestão -> Pré-processamento -> Treinamento -> Monitoramento.
+    Fluxo: Ingestão -> Pré-processamento -> Treinamento -> Monitoramento -> Reporting.
     """
     
     def __init__(self):
@@ -51,6 +52,26 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro no Treinamento: {e}")
             return False
 
+    def run_reporting(self):
+        """Etapa 4: Gera o relatório de Data Drift (Big Data Report).
+        Compara a distribuição dos dados de treino (referência)
+        contra os logs de inferência em produção (current).
+        """
+        logger.info("Etapa 4: Iniciando geração do Big Data Report (Data Drift)...")
+        try:
+            report_path = generate_data_drift_report()
+            if report_path:
+                logger.info(f"Big Data Report gerado com sucesso: {report_path}")
+            else:
+                logger.warning(
+                    "Big Data Report não gerado. "
+                    "Verifique se há dados de inferência suficientes em data/logs/."
+                )
+            return report_path
+        except Exception as e:
+            logger.error(f"Erro ao gerar Big Data Report: {e}")
+            return None
+
     def run_pipeline(self):
         """
         Executa o pipeline completo (DAG sequencial).
@@ -73,13 +94,15 @@ def schedule_pipeline(demo_mode: bool = False):
     orchestrator = MLPipelineOrchestrator()
 
     if demo_mode:
-        # Modo demonstração: executa imediatamente e agenda repetição a cada 1 minuto
-        logger.info("Modo DEMO ativo: pipeline agendada para cada 1 minuto.")
+        # Modo demonstração: pipeline a cada 1 minuto, report a cada 2 minutos
+        logger.info("Modo DEMO ativo: pipeline a cada 1 min | report a cada 2 min.")
         schedule.every(1).minutes.do(orchestrator.run_pipeline)
+        schedule.every(2).minutes.do(orchestrator.run_reporting)
     else:
-        # Modo produção: executa a cada 24 horas
-        logger.info("Modo PRODUÇÃO: pipeline agendada para cada 24 horas.")
+        # Modo produção: pipeline a cada 24h, report todo dia à meia-noite
+        logger.info("Modo PRODUÇÃO: pipeline a cada 24h | report diariamente à meia-noite.")
         schedule.every(24).hours.do(orchestrator.run_pipeline)
+        schedule.every().day.at("00:00").do(orchestrator.run_reporting)
 
     # Execução inicial imediata antes de entrar no loop de agendamento
     orchestrator.run_pipeline()

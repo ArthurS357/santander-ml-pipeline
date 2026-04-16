@@ -1,0 +1,100 @@
+###############################################################################
+# Kubernetes Deployment — Santander ML Pipeline API
+#
+# Mantém 3 réplicas (mínimo do HPA) com probes de saúde e limites de recursos.
+# Env vars injetadas via ConfigMap (santander-ml-config) e Secret
+# (santander-ml-secrets) — nenhum valor sensível em texto plano.
+#
+# Dependências (aplicar antes):
+#   kubectl apply -f k8s/configmap-secret.yaml
+#   kubectl apply -f k8s/deployment.yaml
+#   kubectl apply -f k8s/service.yaml
+#   kubectl apply -f k8s/hpa.yaml
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: santander-ml-api
+  labels:
+    app: santander-ml-api
+    tier: backend
+    project: santander-ml-pipeline
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: santander-ml-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: santander-ml-api
+        tier: backend
+    spec:
+      containers:
+        - name: ml-api
+          image: santander-ml-pipeline:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+              name: http
+
+          # ---------------------------------------------------------------
+          # Variáveis de ambiente — injetadas via ConfigMap e Secret
+          # ---------------------------------------------------------------
+
+          # Bulk inject: todas as chaves do ConfigMap viram env vars
+          envFrom:
+            - configMapRef:
+                name: santander-ml-config
+
+          # Variáveis sensíveis: referência explícita ao Secret
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: santander-ml-secrets
+                  key: DATABASE_URL
+
+          # ---------------------------------------------------------------
+          # Recursos (requests / limits)
+          # ---------------------------------------------------------------
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+          # ---------------------------------------------------------------
+          # Probes de saúde
+          # ---------------------------------------------------------------
+          # Readiness: verifica se a API está pronta para receber tráfego
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Liveness: reinicia o container se a API parar de responder
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      # Restart policy padrão para Deployments
+      restartPolicy: Always
+

@@ -160,6 +160,7 @@ updated_at_*.txt
 # Project specific exclusions
 data/raw/
 data/processed/
+data/logs/
 data/*.csv
 data/*.parquet
 data/*.json
@@ -167,8 +168,16 @@ data/*.json
 mlruns/
 mlflow.db
 training_history.db
+training_history.db-journal
 models/*.pkl
 models/*.joblib
 models/*.h5
 models/*.pt
 models/*.onnx
+reports/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
