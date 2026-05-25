@@ -14,6 +14,53 @@ from pathlib import Path
 from typing import Iterator
 
 import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def api_client() -> TestClient:
+    """TestClient único compartilhado pelos testes da API."""
+    from src.api import app
+
+    return TestClient(app)
+
+
+class DummyModel:
+    """Modelo dummy que imita a interface sklearn.
+
+    Configurável via construtor para testar resposta positiva/negativa.
+    Implementa `predict` e `predict_proba` retornando `np.ndarray` —
+    exatamente o que a API espera de um Pipeline scikit-learn.
+    """
+
+    def __init__(self, prediction: int = 1, proba_positive: float = 0.85) -> None:
+        import numpy as np
+
+        self._np = np
+        self._prediction = prediction
+        self._proba = [1.0 - proba_positive, proba_positive]
+
+    def predict(self, X):  # noqa: ANN001 — X é DataFrame, mas API trata como genérico
+        return self._np.array([self._prediction])
+
+    def predict_proba(self, X):  # noqa: ANN001
+        return self._np.array([self._proba])
+
+
+@pytest.fixture
+def dummy_model_loaded(monkeypatch: pytest.MonkeyPatch):
+    """Injeta um DummyModel no módulo `src.api` sem tocar no disco.
+
+    Estado restaurado automaticamente pelo monkeypatch após o teste.
+    Caller pode customizar a predição via `request.param` quando usado
+    com `indirect=True` em parametrize.
+    """
+    from src import api
+
+    model = DummyModel(prediction=1, proba_positive=0.85)
+    monkeypatch.setattr(api, "modelo", model)
+    monkeypatch.setattr(api, "modelo_path", "mlruns/1/abc123def456/artifacts/model")
+    return model
 
 
 @pytest.fixture

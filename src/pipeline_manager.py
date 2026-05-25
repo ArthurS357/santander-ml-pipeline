@@ -1,53 +1,52 @@
+"""Orquestrador do pipeline de ML — DAG sequencial com scheduler opcional."""
+
+from __future__ import annotations
+
+import logging
 import os
 import time
+from pathlib import Path
+
 import schedule
-import logging
+
 from src.data_ingestion import load_and_save_data
+from src.generate_report import generate_data_drift_report
 from src.preprocessing import preprocess_data
 from src.train import train_model
-from src.generate_report import generate_data_drift_report
 
-# Configuração de Logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# Defaults alinhados com `train.py` (env vars `RAW_DATA_FILE`/`PROCESSED_DATA_FILE`).
+_DEFAULT_RAW = Path("data/raw/pima_diabetes.csv")
+_DEFAULT_PROCESSED = Path("data/processed/pima_diabetes_processed.csv")
+
 
 class MLPipelineOrchestrator:
-    """
-    Orquestrador de Pipeline de ML (Simulação de DAG).
-    Fluxo: Ingestão -> Pré-processamento -> Treinamento -> Monitoramento -> Reporting.
+    """Orquestrador de Pipeline de ML (Simulação de DAG).
+
+    Fluxo: Ingestão → Pré-processamento → Treinamento → Monitoramento → Reporting.
     """
 
-    def __init__(self):
-        # RAW_DATA_URL: sobrescreva com caminho local (file://...) ou URL interna
-        # em ambientes sem acesso à internet. Deixe vazio para usar arquivo local.
-        self.raw_data_url = os.getenv(
-            "RAW_DATA_URL",
-            "data/raw/pima_diabetes.csv",
+    def __init__(self) -> None:
+        # Permite apontar para storage compartilhado em produção sem alterar código.
+        self.raw_data_url: str = os.getenv("RAW_DATA_URL", str(_DEFAULT_RAW))
+        self.raw_data_path: Path = Path(os.getenv("RAW_DATA_FILE", str(_DEFAULT_RAW)))
+        self.processed_data_path: Path = Path(
+            os.getenv("PROCESSED_DATA_FILE", str(_DEFAULT_PROCESSED))
         )
-        self.raw_data_path = "data/raw/pima_diabetes.csv"
-        self.processed_data_path = "data/processed/pima_diabetes_processed.csv"
 
-    def run_ingestion(self):
+    def run_ingestion(self) -> bool:
         logger.info("Etapa 1: Iniciando Ingestão de Dados...")
-
-        # Modo offline: se o arquivo apontado por RAW_DATA_URL existir localmente,
-        # usa load_and_save_data para converter/copiar para o caminho padrão.
-        if os.path.exists(self.raw_data_url):
+        # `load_and_save_data` já trata local-vs-remoto via extensão/URL — não há
+        # razão para dois branches separados; apenas logamos o modo.
+        if Path(self.raw_data_url).exists():
             logger.info(
                 f"Arquivo raw encontrado localmente ({self.raw_data_url}). "
-                "Ingestão de rede ignorada (modo offline)."
+                "Modo offline ativo."
             )
-            try:
-                load_and_save_data(self.raw_data_url, self.raw_data_path)
-                logger.info("Ingestão concluída com sucesso.")
-                return True
-            except Exception as e:
-                logger.error(f"Erro na Ingestão: {e}")
-                return False
-
         try:
             load_and_save_data(self.raw_data_url, self.raw_data_path)
             logger.info("Ingestão concluída com sucesso.")
@@ -56,7 +55,7 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro na Ingestão: {e}")
             return False
 
-    def run_preprocessing(self):
+    def run_preprocessing(self) -> bool:
         logger.info("Etapa 2: Iniciando Pré-processamento...")
         try:
             preprocess_data(self.raw_data_path, self.processed_data_path)
@@ -66,7 +65,7 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro no Pré-processamento: {e}")
             return False
 
-    def run_training(self):
+    def run_training(self) -> bool:
         logger.info("Etapa 3: Iniciando Treinamento e Comparação de Modelos...")
         try:
             train_model(self.processed_data_path)
@@ -76,10 +75,11 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro no Treinamento: {e}")
             return False
 
-    def run_reporting(self):
+    def run_reporting(self) -> str | None:
         """Etapa 4: Gera o relatório de Data Drift (Big Data Report).
-        Compara a distribuição dos dados de treino (referência)
-        contra os logs de inferência em produção (current).
+
+        Compara a distribuição dos dados de treino (referência) contra
+        os logs de inferência em produção (current).
         """
         logger.info("Etapa 4: Iniciando geração do Big Data Report (Data Drift)...")
         try:
@@ -96,10 +96,8 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro ao gerar Big Data Report: {e}")
             return None
 
-    def run_pipeline(self):
-        """
-        Executa o pipeline completo (DAG sequencial).
-        """
+    def run_pipeline(self) -> bool:
+        """Executa o pipeline completo (DAG sequencial)."""
         logger.info("=== Iniciando execução do Pipeline de ML ===")
         start_time = time.time()
 
@@ -114,21 +112,18 @@ class MLPipelineOrchestrator:
                 f"=== Pipeline finalizado com SUCESSO em {time.time() - start_time:.2f}s ==="
             )
             return True
-        else:
-            logger.error("=== Pipeline finalizado com FALHA ===")
-            return False
+        logger.error("=== Pipeline finalizado com FALHA ===")
+        return False
 
 
-def schedule_pipeline(demo_mode: bool = False):
+def schedule_pipeline(demo_mode: bool = False) -> None:
     orchestrator = MLPipelineOrchestrator()
 
     if demo_mode:
-        # Modo demonstração: pipeline a cada 1 minuto, report a cada 2 minutos
         logger.info("Modo DEMO ativo: pipeline a cada 1 min | report a cada 2 min.")
         schedule.every(1).minutes.do(orchestrator.run_pipeline)
         schedule.every(2).minutes.do(orchestrator.run_reporting)
     else:
-        # Modo produção: pipeline a cada 24h, report todo dia à meia-noite
         logger.info(
             "Modo PRODUÇÃO: pipeline a cada 24h | report diariamente à meia-noite."
         )

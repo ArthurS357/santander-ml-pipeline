@@ -34,6 +34,6 @@ def generate_data_drift_report() -> str | None:
 if __name__ == "__main__":
     result = generate_data_drift_report()
     if result:
-        print(f"\n✅ Relatório gerado com sucesso: {result}")
+        logger.info(f"Relatório gerado com sucesso: {result}")
     else:
-        print("\n❌ Falha ao gerar relatório / Report desabilitado.")
+        logger.warning("Falha ao gerar relatório / Report desabilitado.")

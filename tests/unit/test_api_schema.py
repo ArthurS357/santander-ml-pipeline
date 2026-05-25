@@ -1,13 +1,17 @@
-"""Testes de schema/validação da API — caminhos não-felizes."""
+"""Testes de schema/validação da API — caminhos não-felizes.
+
+Usa a fixture `api_client` definida em `conftest.py` e consolida os 3
+testes de payload inválido em um único parametrize semântico.
+"""
 
 from __future__ import annotations
+
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import app
-
-_VALID_PAYLOAD = {
+_VALID_PAYLOAD: dict[str, float] = {
     "preg": 1.0,
     "plas": 85.0,
     "pres": 66.0,
@@ -19,37 +23,50 @@ _VALID_PAYLOAD = {
 }
 
 
+def _payload_without(field: str) -> dict[str, float]:
+    return {k: v for k, v in _VALID_PAYLOAD.items() if k != field}
+
+
+def _payload_with_invalid(field: str, value: Any) -> dict[str, Any]:
+    payload = dict(_VALID_PAYLOAD)
+    payload[field] = value
+    return payload
+
+
 @pytest.mark.unit
 class TestPredictSchema:
-    def test_missing_required_field_returns_422(self) -> None:
-        client = TestClient(app)
-        bad = dict(_VALID_PAYLOAD)
-        del bad["age"]
-        response = client.post("/predict", json=bad)
-        assert response.status_code == 422
+    @pytest.mark.parametrize(
+        ("payload", "expected_status"),
+        [
+            (_payload_without("age"), 422),
+            (_payload_without("preg"), 422),
+            (_payload_with_invalid("plas", "not-a-number"), 422),
+            (_payload_with_invalid("age", None), 422),
+            ({}, 422),
+        ],
+        ids=[
+            "missing_age_field",
+            "missing_preg_field",
+            "non_numeric_plas",
+            "null_age",
+            "empty_body",
+        ],
+    )
+    def test_invalid_payload_returns_422(
+        self, api_client: TestClient, payload: dict, expected_status: int
+    ) -> None:
+        response = api_client.post("/predict", json=payload)
+        assert response.status_code == expected_status
 
-    def test_non_numeric_field_returns_422(self) -> None:
-        client = TestClient(app)
-        bad = dict(_VALID_PAYLOAD)
-        bad["plas"] = "not-a-number"
-        response = client.post("/predict", json=bad)
-        assert response.status_code == 422
-
-    def test_empty_body_returns_422(self) -> None:
-        client = TestClient(app)
-        response = client.post("/predict", json={})
-        assert response.status_code == 422
-
-    def test_get_on_predict_returns_405(self) -> None:
-        client = TestClient(app)
-        response = client.get("/predict")
+    def test_get_on_predict_returns_405(self, api_client: TestClient) -> None:
+        response = api_client.get("/predict")
         assert response.status_code == 405
 
 
 @pytest.mark.unit
 class TestAdminEndpointSafety:
-    def test_admin_reload_constant_time_comparison_used(self) -> None:
-        """Garante que `secrets.compare_digest` (timing-safe) é o método usado."""
+    def test_admin_reload_uses_constant_time_comparison(self) -> None:
+        """`secrets.compare_digest` é o método correto contra timing attacks."""
         import inspect
 
         from src import api

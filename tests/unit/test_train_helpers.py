@@ -77,21 +77,36 @@ class TestCollectDatasetSnapshot:
 
 @pytest.mark.unit
 class TestResolveSelectionMetric:
-    def test_default_when_env_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("MODEL_SELECTION_METRIC", raising=False)
-        assert _resolve_selection_metric() == DEFAULT_SELECTION_METRIC
-
-    def test_returns_env_value_when_supported(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("env_value", "expected"),
+        [
+            (None, DEFAULT_SELECTION_METRIC),
+            ("recall", "recall"),
+            ("precision", "precision"),
+            ("roc_auc", "roc_auc"),
+            ("made_up_metric", DEFAULT_SELECTION_METRIC),
+            ("", DEFAULT_SELECTION_METRIC),
+        ],
+        ids=[
+            "env_ausente_usa_default",
+            "env_recall_aceito",
+            "env_precision_aceito",
+            "env_roc_auc_aceito",
+            "env_invalido_cai_no_default",
+            "env_string_vazia_cai_no_default",
+        ],
+    )
+    def test_resolve_paths(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_value: str | None,
+        expected: str,
     ) -> None:
-        monkeypatch.setenv("MODEL_SELECTION_METRIC", "recall")
-        assert _resolve_selection_metric() == "recall"
-
-    def test_falls_back_on_unsupported_value(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("MODEL_SELECTION_METRIC", "made_up_metric")
-        assert _resolve_selection_metric() == DEFAULT_SELECTION_METRIC
+        if env_value is None:
+            monkeypatch.delenv("MODEL_SELECTION_METRIC", raising=False)
+        else:
+            monkeypatch.setenv("MODEL_SELECTION_METRIC", env_value)
+        assert _resolve_selection_metric() == expected
 
     def test_all_supported_metrics_are_recognized(
         self, monkeypatch: pytest.MonkeyPatch

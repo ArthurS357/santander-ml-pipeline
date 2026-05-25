@@ -69,7 +69,7 @@ def _get_model_version_id() -> str:
         return f"run_{Path(modelo_path).parts[-3]}"
 
 
-def load_latest_model():
+def load_latest_model() -> object | None:
     global modelo, modelo_path
 
     # --- Estratégia 1: MODEL_URI via variável de ambiente (Produção / Desacoplado) ---
@@ -139,7 +139,9 @@ LOG_FIELDNAMES = [
 ]
 
 
-def log_prediction(input_data: dict, prediction: int, probability: float) -> None:
+def log_prediction(
+    input_data: dict[str, float], prediction: int, probability: float
+) -> None:
     """Anexa um registro de inferência ao CSV de logs de forma thread-safe.
     Executada em background para não impactar a latência da resposta.
     """
@@ -171,7 +173,7 @@ def log_prediction(input_data: dict, prediction: int, probability: float) -> Non
 @app.post("/predict")
 async def predict(
     data: PatientData, request: Request, background_tasks: BackgroundTasks
-):
+) -> dict[str, object]:
     start_time = time.time()
 
     if modelo is None:
@@ -181,7 +183,7 @@ async def predict(
         )
 
     # Log de Entrada (Observabilidade: Rastreabilidade)
-    client_ip = request.client.host
+    client_ip = request.client.host if request.client else "unknown"
     logger.info(f"Requisição de predição recebida de {client_ip}")
 
     # Passo 5: Converter dados e prever
@@ -212,19 +214,19 @@ async def predict(
         log_prediction,
         input_data=input_dict,
         prediction=int(predicao[0]),
-        probability=float(probabilidade),
+        probability=probabilidade,
     )
 
     return {
         "predicao": resultado,
-        "confianca": round(float(probabilidade), 4),
+        "confianca": round(probabilidade, 4),
         "modelo_versao": _get_model_version_id(),
         "latencia_s": round(latency, 4),
     }
 
 
 @app.get("/")
-def health_check():
+def health_check() -> dict[str, object]:
     """Endpoint informativo legado. Sempre 200 — não usar como readiness probe."""
     return {
         "status": "API ativa",

@@ -4,7 +4,7 @@ import os
 _DASK_SIZE_THRESHOLD = 500 * 1024 * 1024
 
 
-def use_dask_mode(file_path: str = None) -> bool:
+def use_dask_mode(file_path: str | None = None) -> bool:
     """
     Retorna True se o processamento deve usar Dask em vez de Pandas.
 

@@ -5,10 +5,11 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Union
+from typing import Mapping, Union, cast
 
 import mlflow
 import mlflow.sklearn
+import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
@@ -125,12 +126,15 @@ def _collect_dataset_snapshot(
     garantindo que a auditoria reflita o artefato físico usado no treino.
     """
     df = pd.read_csv(data_p)
-    schema = {col: str(dtype) for col, dtype in df.dtypes.items()}
+    # `df.dtypes.items()` retorna chaves Hashable; convertemos para str
+    # para casar com o contrato `Mapping[str, str]` do DatasetSnapshot.
+    schema: dict[str, str] = {str(col): str(dtype) for col, dtype in df.dtypes.items()}
+    rows, cols = df.shape
     return DatasetSnapshot(
         dataset_path=str(data_p),
         dataset_sha256=_calculate_sha256(data_p),
-        row_count=int(df.shape[0]),
-        column_count=int(df.shape[1]),
+        row_count=rows,
+        column_count=cols,
         target_column=target_column,
         schema=schema,
     )
@@ -192,10 +196,17 @@ def _resolve_selection_metric() -> str:
     return metric
 
 
+# Alias para qualquer tipo aceito pelas funções do sklearn.metrics.
+# Cobre tanto saídas de `pipeline.predict()` (np.ndarray) quanto holdouts
+# em DataFrames (pd.Series). Mantido como `np.typing.ArrayLike` para evitar
+# importação adicional de tipos numpy/pandas no nível module.
+ArrayLikeMetric = Union[pd.Series, np.ndarray]
+
+
 def _compute_metrics(
-    y_true: pd.Series,
-    y_pred: pd.Series,
-    y_proba: pd.Series | None,
+    y_true: ArrayLikeMetric,
+    y_pred: ArrayLikeMetric,
+    y_proba: ArrayLikeMetric | None,
 ) -> dict[str, float]:
     """Calcula o conjunto completo de métricas suportadas.
 
@@ -203,9 +214,15 @@ def _compute_metrics(
     Falhas no `roc_auc` (modelo sem `predict_proba`, ou classe única no holdout)
     degradam silenciosamente para `nan`, sem quebrar o run inteiro.
     """
+    # Notas de tipo (Pyrefly):
+    # - balanced_accuracy_score retorna `float` puro — sem `float()` extra.
+    # - accuracy_score retorna `float | int` (depende de `normalize`).
+    # - f1/precision/recall/roc_auc retornam `float | ndarray` (multi-classe).
+    # Como usamos `average='binary'` (default), o retorno é sempre escalar;
+    # `float(...)` faz o estreitamento explícito para o type checker.
     metrics: dict[str, float] = {
         "accuracy": float(accuracy_score(y_true, y_pred)),
-        "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
+        "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
         "f1_score": float(f1_score(y_true, y_pred, zero_division=0)),
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
@@ -278,8 +295,10 @@ def _train_standard(data_p: Path) -> None:
             )
 
             pipeline.fit(X_train, y_train)
-            predictions = pipeline.predict(X_test)
-            proba = (
+            # `predict` declara união `ndarray | tuple` (regressor GP com return_std);
+            # para classificadores é sempre `ndarray` — estreitamos para o type checker.
+            predictions = cast(np.ndarray, pipeline.predict(X_test))
+            proba: np.ndarray | None = (
                 pipeline.predict_proba(X_test)[:, 1]
                 if hasattr(pipeline.named_steps["classifier"], "predict_proba")
                 else None
@@ -390,7 +409,7 @@ def _train_incremental(data_p: Path) -> None:
             X_eval = imputer.transform(eval_chunk.drop("class", axis=1))
             y_eval = eval_chunk["class"]
             preds = clf.predict(X_eval)
-            proba = (
+            proba: np.ndarray | None = (
                 clf.predict_proba(X_eval)[:, 1]
                 if hasattr(clf, "predict_proba")
                 else None
