@@ -5,11 +5,17 @@
 # Env vars injetadas via ConfigMap (santander-ml-config) e Secret
 # (santander-ml-secrets) — nenhum valor sensível em texto plano.
 #
+# Hardening (P2):
+#   - Imagem com tag imutável (sem :latest)
+#   - securityContext: runAsNonRoot, readOnlyRootFilesystem, drop ALL caps
+#   - emptyDir para /tmp e /app/data/logs (única gravação em runtime)
+#
 # Dependências (aplicar antes):
 #   kubectl apply -f k8s/configmap-secret.yaml
 #   kubectl apply -f k8s/deployment.yaml
 #   kubectl apply -f k8s/service.yaml
 #   kubectl apply -f k8s/hpa.yaml
+#   kubectl apply -f k8s/networkpolicy.yaml
 ###############################################################################
 apiVersion: apps/v1
 kind: Deployment
@@ -35,14 +41,41 @@ spec:
         app: santander-ml-api
         tier: backend
     spec:
+      # ---------------------------------------------------------------
+      # securityContext em nível de Pod — defaults seguros que aplicam
+      # a todos os containers do pod.
+      # ---------------------------------------------------------------
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
         - name: ml-api
-          image: santander-ml-pipeline:latest
+          # Tag imutável obrigatória — substitua a versão a cada release.
+          # Para reproduzir o comportamento antigo (não recomendado), use ':latest'.
+          image: ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
               protocol: TCP
               name: http
+
+          # ---------------------------------------------------------------
+          # securityContext em nível de container — overrides do pod.
+          # ---------------------------------------------------------------
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
           # ---------------------------------------------------------------
           # Variáveis de ambiente — injetadas via ConfigMap e Secret
@@ -60,6 +93,23 @@ spec:
                 secretKeyRef:
                   name: santander-ml-secrets
                   key: DATABASE_URL
+            # Token de admin para /admin/reload_model — Secret externo
+            - name: ADMIN_RELOAD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: santander-ml-secrets
+                  key: ADMIN_RELOAD_TOKEN
+                  optional: true
+
+          # ---------------------------------------------------------------
+          # Volumes graváveis exigidos pelo readOnlyRootFilesystem=true.
+          # Tudo é efêmero (emptyDir) — pods sem estado.
+          # ---------------------------------------------------------------
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: inference-logs
+              mountPath: /app/data/logs
 
           # ---------------------------------------------------------------
           # Recursos (requests / limits)
@@ -95,6 +145,16 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
 
+      # ---------------------------------------------------------------
+      # Volumes efêmeros (recriados a cada start do pod).
+      # ---------------------------------------------------------------
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: inference-logs
+          emptyDir:
+            sizeLimit: 256Mi
+
       # Restart policy padrão para Deployments
       restartPolicy: Always
-

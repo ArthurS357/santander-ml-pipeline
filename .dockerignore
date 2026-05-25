@@ -11,13 +11,17 @@ mlruns/
 training_history.db
 training_history.db-journal
 mlflow.db
+mlflow.db-journal
 
 # --- Ambiente Virtual e Cache Python ---
 venv/
 .venv/
 __pycache__/
 *.py[cod]
+*.pyo
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # --- Dados Brutos e Processados (carregados em runtime ou via volume) ---
 data/
@@ -30,6 +34,22 @@ data/
 # --- Artefatos de Testes e Relatórios ---
 test_results.txt
 *.log
+reports/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# --- Testes não fazem parte da imagem de produção ---
+tests/
+
+# --- Variáveis de ambiente locais (nunca enviar para imagem) ---
+.env
+.env.*
+
+# --- Scripts de bootstrap só usados no host de desenvolvimento ---
+setup_enterprise.ps1
+setup_enterprise.sh
 
 # --- Configurações de IDEs e ferramentas locais ---
 .vscode/

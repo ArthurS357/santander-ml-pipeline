@@ -25,6 +25,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.claude
+*code-review-graph
+
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -114,12 +117,20 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Ruff cache
+.ruff_cache/
+
+# Python bytecode (extra)
+*.pyo
 
 # Spyder project settings
 .spyderproject
@@ -167,6 +178,7 @@ data/*.json
 !data/.gitkeep
 mlruns/
 mlflow.db
+mlflow.db-journal
 training_history.db
 training_history.db-journal
 models/*.pkl

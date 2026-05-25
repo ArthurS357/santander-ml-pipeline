@@ -4,7 +4,7 @@ FROM python:3.14-slim
 # Define a pasta de trabalho dentro do contêiner
 WORKDIR /app
 
-# Copia a lista de dependências e instala
+# Copia a lista de dependências e instala (como root, para usar /usr/local/lib)
 COPY requirements.txt .
 # PIP_INDEX_URL pode ser sobrescrito via --build-arg para ambientes com mirror interno
 ARG PIP_INDEX_URL=https://pypi.org/simple
@@ -14,6 +14,16 @@ RUN pip install --no-cache-dir --index-url ${PIP_INDEX_URL} -r requirements.txt
 # Em produção, o modelo deve vir via MODEL_URI (MLflow Registry remoto).
 # Em desenvolvimento local, monte mlruns/ como volume (-v $PWD/mlruns:/app/mlruns).
 COPY . .
+
+# ---------------------------------------------------------------
+# Hardening: usuário não-root e diretórios graváveis explícitos.
+# UID/GID 10001 alinhados com securityContext do Kubernetes.
+# /app/data/logs precisa de volume emptyDir quando readOnlyRootFilesystem=true.
+# ---------------------------------------------------------------
+RUN groupadd --system --gid 10001 appuser \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin appuser \
+    && mkdir -p /app/data/logs \
+    && chown -R appuser:appuser /app
 
 # Expõe a porta que a aplicação vai rodar
 EXPOSE 8000
@@ -36,6 +46,8 @@ ENV RAW_DATA_URL=""
 # Vazio = endpoint nega acesso por padrão (fail-secure).
 ENV ADMIN_RELOAD_TOKEN=""
 
+# Troca para usuário não-root antes de iniciar o servidor
+USER appuser
+
 # Comando para iniciar o servidor web da API
 CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
-

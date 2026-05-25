@@ -1,0 +1,86 @@
+###############################################################################
+# NetworkPolicy — Santander ML Pipeline API
+#
+# Restringe tráfego de/para os pods do Deployment santander-ml-api.
+# Default-deny + allowlist explícita para as portas estritamente necessárias.
+#
+# Pré-requisito: CNI com suporte a NetworkPolicy (Calico, Cilium, Antrea etc.).
+# Em clusters sem suporte (kindnet padrão), esta política é ignorada silenciosamente.
+#
+# Aplicar:
+#   kubectl apply -f k8s/networkpolicy.yaml
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: santander-ml-api-policy
+  labels:
+    app: santander-ml-api
+    project: santander-ml-pipeline
+spec:
+  podSelector:
+    matchLabels:
+      app: santander-ml-api
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # ---------------------------------------------------------------------------
+  # Ingress: só porta 8000 (HTTP da API).
+  #   - Ingress controller (label: ingress-nginx, ajuste conforme seu cluster)
+  #   - Prometheus scraper (label: prometheus)
+  # ---------------------------------------------------------------------------
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8000
+
+  # ---------------------------------------------------------------------------
+  # Egress: apenas o estritamente necessário.
+  #   - DNS (kube-dns / CoreDNS) na porta 53 UDP+TCP
+  #   - MLflow Tracking Server na porta 5000
+  #   - PostgreSQL (DATABASE_URL) na porta 5432, se usado em prod
+  # ---------------------------------------------------------------------------
+  egress:
+    # DNS — necessário para resolver os hostnames internos do cluster
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # MLflow Tracking Server (mlflow-service no mesmo namespace)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mlflow-service
+      ports:
+        - protocol: TCP
+          port: 5000
+
+    # PostgreSQL (substitua o selector pelo da sua instância gerenciada)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
