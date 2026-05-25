@@ -48,10 +48,10 @@ O objetivo não é apenas construir um modelo — é construir a **infraestrutur
 
 | Pilar                          | Requisito do Edital                               | Implementação                                                             |
 | ------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------- |
-| **Treinamento**                | Múltiplos algoritmos com comparação de desempenho | RF, Logistic Regression e SVM treinados simultaneamente                   |
+| **Treinamento**                | Múltiplos algoritmos com comparação de desempenho | RF, Logistic Regression e SVM com `train_test_split(stratify=y)` + seleção por métrica de negócio configurável |
 | **CI/CD**                      | Integração e deploy contínuos automáticos         | GitHub Actions com Security Gate (black, flake8, bandit) + push GHCR      |
 | **Orquestração**               | Fluxo completo com agendamento de pipelines       | `MLPipelineOrchestrator` com DAG sequencial + `schedule`                  |
-| **Gerenciamento de Artefatos** | Versionamento de modelos e métricas               | MLflow Tracking + **Model Registry** com versões incrementais             |
+| **Gerenciamento de Artefatos** | Versionamento de modelos, métricas e dataset      | MLflow Tracking + **Model Registry** + tabela `training_dataset_snapshots` (hash SHA-256 + schema + vínculo com run) |
 | **Observabilidade**            | Métricas de desempenho em tempo real              | Prometheus `/metrics` + Inference Logging (Data Drift Report no roadmap)  |
 | **Escalabilidade**             | Dimensionamento horizontal dos recursos           | Docker + Kubernetes (Deployment, Service, HPA) + GitHub Actions           |
 | **Segurança**                  | Análise estática de vulnerabilidades (SAST)       | Bandit no CI + Secrets via K8s Opaque + Shift-Left Security               |
@@ -351,6 +351,41 @@ curl -X POST http://localhost:8000/predict \
 
 ---
 
+### 3.5.1 Métricas e Snapshot do Dataset
+
+Cada run de treinamento registra no MLflow as métricas:
+
+| Métrica             | Quando usar como `MODEL_SELECTION_METRIC`                |
+| ------------------- | -------------------------------------------------------- |
+| `accuracy`          | Dataset balanceado, custo simétrico                      |
+| `balanced_accuracy` | Dataset desbalanceado, classes igualmente importantes    |
+| `f1_score` *(default)* | Trade-off entre precision e recall                    |
+| `precision`         | Falso positivo é caro (ex: fraude, spam)                 |
+| `recall`            | Falso negativo é caro (ex: diabetes, câncer)             |
+| `roc_auc`           | Avaliação de ranking — precisa de `predict_proba`        |
+
+A seleção do "melhor modelo" é controlada pela env var `MODEL_SELECTION_METRIC` (default `f1_score`). Valor desconhecido degrada silenciosamente para o default com warning no log.
+
+```bash
+# Linux/macOS
+MODEL_SELECTION_METRIC=recall python src/pipeline_manager.py
+
+# Windows
+$env:MODEL_SELECTION_METRIC = "recall"
+python src/pipeline_manager.py
+```
+
+**Snapshot lógico do dataset** — a cada run, a tabela `training_dataset_snapshots` é populada com:
+
+- `dataset_sha256` (hash do arquivo físico, calculado em chunks de 1 MiB)
+- `row_count`, `column_count`, `target_column`
+- `schema_json` (mapa coluna → dtype, ordenado)
+- `mlflow_run_id` (vincula o snapshot ao run específico)
+
+O mesmo hash é gravado como tag `dataset_sha256` no MLflow, permitindo auditar qualquer predição de produção até a versão exata do arquivo de treino que gerou o modelo.
+
+---
+
 ### 3.6 Acessando o MLflow UI
 
 ```bash
@@ -368,15 +403,32 @@ No MLflow UI é possível:
 
 ### 3.7 Executando os Testes Automatizados
 
-```bash
-pytest src/test_api.py -v
-```
+A suíte está organizada por camada:
 
 ```
-src/test_api.py::test_predict_endpoint PASSED   [ 50%]
-src/test_api.py::test_health_check     PASSED   [100%]
-============ 2 passed in 1.23s ============
+tests/
+├── conftest.py                     # fixtures compartilhadas (DB e MLflow efêmeros)
+├── unit/
+│   ├── test_train_helpers.py       # hash SHA-256, snapshot, métricas, seleção
+│   └── test_api_schema.py          # validação Pydantic e safety da rota admin
+└── integration/
+    └── test_train_pipeline.py      # pipeline ponta-a-ponta em ambiente isolado
+
+src/test_api.py                     # smoke tests legados da API (mantidos)
 ```
+
+```bash
+# Suíte completa (unit + integration + smoke API)
+pytest
+
+# Só os rápidos
+pytest -m unit
+
+# Só os de integração (executam o pipeline real)
+pytest -m integration -v
+```
+
+Os testes de integração usam `tmp_path` + `monkeypatch` para apontar `DATABASE_URL` e `MLFLOW_TRACKING_URI` para diretórios efêmeros que o pytest destrói ao final — nenhum artefato vaza para `mlruns/` ou `training_history.db` do projeto.
 
 ---
 
@@ -465,6 +517,10 @@ kubectl apply -f k8s/hpa.yaml
 ├── Healthcheck separado: /health/live (liveness) e /health/ready (readiness com 503)
 ├── Endpoint administrativo /admin/reload_model protegido por token (fail-secure)
 ├── Modelo registrado no MLflow Registry sob nome único PimaDiabetesClassifier
+├── train_test_split com stratify=y (proporção 0/1 preservada no holdout)
+├── Seleção do melhor modelo por métrica configurável (MODEL_SELECTION_METRIC)
+├── Métricas estendidas no MLflow: accuracy, balanced_accuracy, precision, recall, f1_score, roc_auc
+├── Snapshot lógico do dataset (SHA-256 + schema + linhas) em training_dataset_snapshots
 ├── docker-compose.observability.yml com API + Prometheus + Grafana
 ├── Kubernetes: Deployment + Service + HPA + ConfigMap/Secret
 └── Pydantic V2 (model_dump) — sem warnings de deprecação
