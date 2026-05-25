@@ -1,10 +1,19 @@
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    status,
+)
 from pydantic import BaseModel
 import pandas as pd
 import mlflow.sklearn
 import os
 import csv
 import logging
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -216,6 +225,7 @@ async def predict(
 
 @app.get("/")
 def health_check():
+    """Endpoint informativo legado. Sempre 200 — não usar como readiness probe."""
     return {
         "status": "API ativa",
         "modelo_carregado": modelo is not None,
@@ -224,8 +234,44 @@ def health_check():
     }
 
 
-@app.post("/reload_model")
-def reload_model():
-    """Endpoint para forçar o recarregamento do modelo após um novo deploy (CD/Orquestração)"""
+@app.get("/health/live")
+def liveness() -> dict[str, str]:
+    """Liveness probe: processo respondendo. Sempre 200 enquanto o app estiver vivo."""
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+def readiness() -> dict[str, object]:
+    """Readiness probe: 503 se o modelo não estiver carregado — bloqueia tráfego."""
+    if modelo is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Modelo não carregado",
+        )
+    return {
+        "status": "ready",
+        "modelo_carregado": True,
+        "modelo_versao": _get_model_version_id(),
+    }
+
+
+def require_admin_token(x_admin_token: str | None = Header(default=None)) -> None:
+    """Dependência fail-secure: nega acesso se ADMIN_RELOAD_TOKEN não estiver configurado."""
+    expected = os.getenv("ADMIN_RELOAD_TOKEN")
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ADMIN_RELOAD_TOKEN não configurado",
+        )
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, expected):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso negado",
+        )
+
+
+@app.post("/admin/reload_model")
+def reload_model(_: None = Depends(require_admin_token)) -> dict[str, object]:
+    """Recarrega o modelo após um novo deploy. Protegido por token administrativo."""
     new_model = load_latest_model()
     return {"status": "Recarregamento solicitado", "sucesso": new_model is not None}

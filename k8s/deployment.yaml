@@ -75,20 +75,20 @@ spec:
           # ---------------------------------------------------------------
           # Probes de saúde
           # ---------------------------------------------------------------
-          # Readiness: verifica se a API está pronta para receber tráfego
+          # Readiness: bloqueia tráfego enquanto o modelo não estiver carregado (503)
           readinessProbe:
             httpGet:
-              path: /
+              path: /health/ready
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
 
-          # Liveness: reinicia o container se a API parar de responder
+          # Liveness: reinicia o container apenas se o processo deixar de responder
           livenessProbe:
             httpGet:
-              path: /
+              path: /health/live
               port: 8000
             initialDelaySeconds: 30
             periodSeconds: 15

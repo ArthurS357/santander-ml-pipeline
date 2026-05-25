@@ -134,12 +134,15 @@ def _train_standard(data_p: Path):
     logger.info(f"\nMelhor pipeline: {best_model_name} com Accuracy: {best_acc:.4f}")
 
     if best_run_id:
-        registry_name = f"PimaDiabetes_{best_model_name}_MedianImputer"
+        # Nome único e estável do modelo no Registry, independente do algoritmo vencedor.
+        # O algoritmo escolhido é registrado como tag/param do run, não no nome do artefato.
+        registry_name = "PimaDiabetesClassifier"
         registered = mlflow.register_model(
             model_uri=f"runs:/{best_run_id}/model", name=registry_name
         )
         logger.info(
-            f"Artefato '{registry_name}' registrado no MLflow Registry (Versão: {registered.version})."
+            f"Artefato '{registry_name}' (algoritmo vencedor: {best_model_name}) "
+            f"registrado no MLflow Registry (Versão: {registered.version})."
         )
 
 
@@ -209,10 +212,11 @@ def _train_incremental(data_p: Path):
 
         registered = mlflow.register_model(
             model_uri=f"runs:/{run.info.run_id}/model",
-            name="PimaDiabetes_SGD_Incremental",
+            name="PimaDiabetesClassifier",
         )
         logger.info(
-            f"Artefato 'PimaDiabetes_SGD_Incremental' registrado (Versão: {registered.version})."
+            f"Artefato 'PimaDiabetesClassifier' (modo incremental SGD) "
+            f"registrado (Versão: {registered.version})."
         )
 
 

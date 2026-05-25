@@ -4,7 +4,7 @@
 
 ### Case de Certificação — Academia Santander · Engenharia de Machine Learning
 
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![MLflow](https://img.shields.io/badge/MLflow-3.10-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
@@ -25,8 +25,8 @@
 ## 🚀 Novas Funcionalidades (v2.0)
 
 - **Modo Big Data Automático:** Transição de Pandas para Dask + SGDClassifier com `partial_fit` para arquivos > 500MB.
-- **Observabilidade Ativa:** Shadow Logging e Data Drift com Evidently.
-- **Deploy Cloud-Native:** Kubernetes HPA.
+- **Observabilidade Ativa:** Inference Logging em CSV + métricas Prometheus (`/metrics`). O relatório Evidently de Data Drift está **planejado** como melhoria futura — desabilitado nesta versão por incompatibilidade do `pydantic.v1` com Python 3.14.
+- **Deploy Cloud-Native:** Kubernetes HPA com readiness/liveness probes separadas.
 
 ---
 
@@ -52,7 +52,7 @@ O objetivo não é apenas construir um modelo — é construir a **infraestrutur
 | **CI/CD**                      | Integração e deploy contínuos automáticos         | GitHub Actions com Security Gate (black, flake8, bandit) + push GHCR      |
 | **Orquestração**               | Fluxo completo com agendamento de pipelines       | `MLPipelineOrchestrator` com DAG sequencial + `schedule`                  |
 | **Gerenciamento de Artefatos** | Versionamento de modelos e métricas               | MLflow Tracking + **Model Registry** com versões incrementais             |
-| **Observabilidade**            | Métricas de desempenho em tempo real              | Prometheus `/metrics` + Inference Logging + Data Drift Report (Evidently) |
+| **Observabilidade**            | Métricas de desempenho em tempo real              | Prometheus `/metrics` + Inference Logging (Data Drift Report no roadmap)  |
 | **Escalabilidade**             | Dimensionamento horizontal dos recursos           | Docker + Kubernetes (Deployment, Service, HPA) + GitHub Actions           |
 | **Segurança**                  | Análise estática de vulnerabilidades (SAST)       | Bandit no CI + Secrets via K8s Opaque + Shift-Left Security               |
 
@@ -84,17 +84,16 @@ flowchart TD
     end
 
     TREINO -->|Todos os runs| F[(SQLite\ntraining_history.db)]
-    TREINO -->|Melhor modelo| G["📦 MLflow\nModel Registry\nPimaDiabetes_RandomForest_MedianImputer v1, v2..."]
-    G -->|load_latest_model| H
+    TREINO -->|Melhor modelo| G["📦 MLflow\nModel Registry\nPimaDiabetesClassifier v1, v2..."]
+    G -->|MODEL_URI / load_latest_model| H
 
     subgraph SERVE ["🚀  Serviço de Inferência"]
-        H["⚡ FastAPI :8000\n/predict  /metrics  /reload_model"]
+        H["⚡ FastAPI :8000\n/predict  /metrics\n/health/live  /health/ready\n/admin/reload_model (token)"]
         H -->|BackgroundTasks| IL["📝 Inference Logging\ndata/logs/inference_logs.csv"]
     end
 
-    IL -->|Dados de Produção| RPT["📊 generate_report.py\nEvidently Data Drift"]
-    D -->|Dados de Referência| RPT
-    RPT -->|HTML| RDIR["📁 reports/\ndata_drift_report_YYYYMMDD.html"]
+    IL -.->|Roadmap| RPT["📊 generate_report.py\nEvidently Data Drift\n(desabilitado nesta versão)"]
+    D -.->|Roadmap| RPT
 
     H -->|POST /predict| I([👤 Cliente REST])
     H -->|GET /metrics| J([📊 Prometheus\n:9090])
@@ -121,7 +120,7 @@ graph LR
     subgraph STORAGE ["Camada de Persistência"]
         direction TB
         MLFLOW_T["MLflow Tracking Server\nexperimentos + artefatos"]
-        MLFLOW_R["MLflow Model Registry\nDiabetesClassifier vN"]
+        MLFLOW_R["MLflow Model Registry\nPimaDiabetesClassifier vN"]
         SQLITE[(SQLite\ntraining_history.db)]
         MLFLOW_T --> MLFLOW_R
     end
@@ -140,11 +139,11 @@ graph LR
     subgraph OBS ["Observabilidade"]
         PROM["Prometheus\n(scrape /metrics)"]
         LOG["Logging Estruturado\n(nível INFO por requisição)"]
-        DRIFT["Evidently AI\n(Data Drift Report)"]
+        DRIFT["Evidently AI\n(Data Drift — roadmap)"]
     end
 
     API --> OBS
-    CLIENT(["👤 Cliente"]) -->|"POST /predict\nPOST /reload_model\nGET /"| API
+    CLIENT(["👤 Cliente"]) -->|"POST /predict\nPOST /admin/reload_model (token)\nGET /health/ready"| API
     GHA["🔄 GitHub Actions"] -->|"Security Gate → CI/CD"| CONTAINER
 ```
 
@@ -171,9 +170,9 @@ santander-ml-pipeline/
 │   ├── data_ingestion.py     # Etapa 1 — Ingestão multi-formato: CSV, Excel (.xlsx/.xls) e Parquet
 │   ├── preprocessing.py      # Etapa 2 — Limpeza e imputação por mediana
 │   ├── train.py              # Etapa 3 — Treino multi-modelo + MLflow + SQLite
-│   ├── generate_report.py    # Etapa 4 — Data Drift Report (Evidently AI)
+│   ├── generate_report.py    # Etapa 4 — Data Drift Report (Evidently AI, desabilitado na branch atual)
 │   ├── pipeline_manager.py   # Orquestrador: DAG sequencial + scheduler + reporting
-│   ├── api.py                # FastAPI: /predict · /metrics · /reload_model + Inference Logging
+│   ├── api.py                # FastAPI: /predict · /metrics · /health/* · /admin/reload_model + Inference Logging
 │   └── test_api.py           # Testes automatizados com pytest
 ├── k8s/
 │   ├── deployment.yaml       # Deployment: 3 réplicas + probes + ConfigMap/Secret refs
@@ -186,8 +185,8 @@ santander-ml-pipeline/
 ├── .github/
 │   └── workflows/ci.yml      # CI/CD: Security Gate → Pipeline → Tests → GHCR Push
 ├── docker-compose.observability.yml  # Stack: API + Prometheus + Grafana
-├── Dockerfile                # Container Python 3.11-slim
-├── requirements.txt          # Dependências de produção (Python 3.11+)
+├── Dockerfile                # Container Python 3.14-slim
+├── requirements.txt          # Dependências de produção (Python 3.14)
 ├── requirements-dev.txt      # Dependências de CI: black, flake8, bandit
 ├── pyrightconfig.json        # Configuração Pylance/pyright
 ├── .gitignore                # Exclui venv/, mlruns/, *.db, data/, reports/
@@ -276,7 +275,7 @@ LogisticRegression → Acc: 0.7662 | F1: 0.6383
 SVM               → Acc: 0.7597 | F1: 0.6301
 
 Melhor modelo: RandomForest | Acc: 0.7727
-Modelo registrado: DiabetesClassifier | Versão: 1 | Run ID: abc123...
+Modelo registrado: PimaDiabetesClassifier | Versão: 1 | Run ID: abc123...
 2026-04-04 10:00:15 - INFO - === Pipeline finalizado com SUCESSO em 14.32s ===
 ```
 
@@ -316,13 +315,15 @@ USE_DASK="true" python src/pipeline_manager.py
 uvicorn src.api:app --reload
 ```
 
-| Endpoint                             | Método | Descrição                                  |
-| ------------------------------------ | ------ | ------------------------------------------ |
-| `http://localhost:8000/`             | `GET`  | Health check — status da API e do modelo   |
-| `http://localhost:8000/docs`         | `GET`  | Swagger UI interativo                      |
-| `http://localhost:8000/predict`      | `POST` | Inferência — retorna predição e confiança  |
-| `http://localhost:8000/reload_model` | `POST` | Hot-reload do modelo sem downtime          |
-| `http://localhost:8000/metrics`      | `GET`  | Métricas Prometheus (latência, throughput) |
+| Endpoint                                   | Método | Descrição                                                            |
+| ------------------------------------------ | ------ | -------------------------------------------------------------------- |
+| `http://localhost:8000/`                   | `GET`  | Health check informativo (legado) — sempre 200                       |
+| `http://localhost:8000/health/live`        | `GET`  | Liveness probe — 200 enquanto o processo estiver vivo                |
+| `http://localhost:8000/health/ready`       | `GET`  | Readiness probe — 503 se o modelo não estiver carregado              |
+| `http://localhost:8000/docs`               | `GET`  | Swagger UI interativo                                                |
+| `http://localhost:8000/predict`            | `POST` | Inferência — retorna predição e confiança                            |
+| `http://localhost:8000/admin/reload_model` | `POST` | Hot-reload do modelo. Exige header `X-Admin-Token: $ADMIN_RELOAD_TOKEN` |
+| `http://localhost:8000/metrics`            | `GET`  | Métricas Prometheus (latência, throughput)                           |
 
 **Exemplo de requisição ao `/predict`:**
 
@@ -360,7 +361,7 @@ mlflow ui
 No MLflow UI é possível:
 
 - Comparar accuracy e F1 entre os três algoritmos por execução
-- Navegar até **Model Registry → DiabetesClassifier** e ver o histórico de versões
+- Navegar até **Model Registry → PimaDiabetesClassifier** e ver o histórico de versões
 - Baixar qualquer artefato de modelo por `run_id`
 
 ---
@@ -393,8 +394,18 @@ docker run -d -p 8000:8000 --name diabetes-api \
 docker logs diabetes-api
 
 # Testar
-curl http://localhost:8000/
+curl http://localhost:8000/health/live
+curl http://localhost:8000/health/ready
 ```
+
+> **Como a API carrega o modelo:**
+>
+> 1. **Produção** — defina `MODEL_URI` apontando para o MLflow Model Registry (ex: `models:/PimaDiabetesClassifier/1` ou `models:/PimaDiabetesClassifier@production`). O cliente MLflow resolve o artefato remotamente.
+> 2. **Desenvolvimento local** — monte `mlruns/` como volume (`-v $PWD/mlruns:/app/mlruns`). A API busca o artefato mais recente.
+>
+> Se nenhuma das duas opções for satisfeita, `/health/ready` retornará **503** e o tráfego não será roteado ao pod.
+
+> **Proteção do reload:** o endpoint `/admin/reload_model` exige o header `X-Admin-Token` com o valor da variável `ADMIN_RELOAD_TOKEN`. Se a variável não estiver definida, o endpoint retorna **503** por padrão (fail-secure).
 
 ---
 
@@ -442,7 +453,7 @@ kubectl apply -f k8s/hpa.yaml
 | SQLite não suporta múltiplos escritores              | Pipeline sequencial — sem concorrência no PoC                                   | Substituir por PostgreSQL (trocar `DATABASE_URL`)                                                                      |
 | Mediana calculada no dataset completo (data leakage) | Impacto mínimo em 768 linhas                                                    | `sklearn.Pipeline` + `SimpleImputer` ajustado só no treino                                                             |
 | Modelo embarcado na imagem Docker                    | Simplifica o PoC                                                                | Montar `mlruns/` como volume ou carregar do Registry por URI                                                           |
-| **Evidently desabilitado no Python 3.14**            | `pydantic.v1` não é importável no Python 3.14; Data Drift Report retorna `None` | Evidently funciona normalmente no Docker (Python 3.11); para Python 3.14 use `generate_report.py` com guarda de import |
+| **Evidently desabilitado no Python 3.14**            | `pydantic.v1` não é importável no Python 3.14; `generate_data_drift_report()` retorna `None` | Reintroduzir Evidently quando houver release compatível com Pydantic V2/Python 3.14, ou substituir por implementação manual (PSI/KS) |
 
 ### 4.2 Implementado vs. Roadmap
 
@@ -450,14 +461,16 @@ kubectl apply -f k8s/hpa.yaml
 ✅ Implementado
 ├── Security Gate no CI: black + flake8 + bandit (Shift-Left Security)
 ├── Push automático de imagem para GHCR no CI (docker/login-action)
-├── Monitoramento de Data Drift com Evidently AI (generate_report.py)
 ├── Inference Logging via BackgroundTasks (data/logs/inference_logs.csv)
-├── Sistema de Alertas: WARNING quando drift_share > threshold
+├── Healthcheck separado: /health/live (liveness) e /health/ready (readiness com 503)
+├── Endpoint administrativo /admin/reload_model protegido por token (fail-secure)
+├── Modelo registrado no MLflow Registry sob nome único PimaDiabetesClassifier
 ├── docker-compose.observability.yml com API + Prometheus + Grafana
 ├── Kubernetes: Deployment + Service + HPA + ConfigMap/Secret
 └── Pydantic V2 (model_dump) — sem warnings de deprecação
 
 🔜 Roadmap (próximas iterações)
+├── Data Drift Report com Evidently — desabilitado nesta versão por incompatibilidade do pydantic.v1 com Python 3.14
 ├── Métricas de negócio customizadas (taxa de positivos, distribuição de confiança)
 ├── PostgreSQL (RDS/Cloud SQL) para persistência de metadados
 ├── Retry com backoff exponencial na ingestão (biblioteca tenacity)
@@ -471,7 +484,7 @@ kubectl apply -f k8s/hpa.yaml
 
 A solução demonstra domínio do **ciclo de vida completo de Machine Learning em produção**. As escolhas tecnológicas foram guiadas por três princípios:
 
-- **Reprodutibilidade:** qualquer pessoa com Python 3.11 e `pip install -r requirements.txt` consegue executar o pipeline do zero — sem provisionar nenhuma infraestrutura externa.
+- **Reprodutibilidade:** qualquer pessoa com Python 3.14 e `pip install -r requirements.txt` consegue executar o pipeline do zero — sem provisionar nenhuma infraestrutura externa.
 - **Rastreabilidade:** cada execução gera registros imutáveis no MLflow (artefatos + métricas) e no SQLite (metadados), permitindo auditar qualquer predição até seu run de origem.
 - **Evolução incremental:** cada componente foi projetado para ser substituído pela sua versão de produção de forma independente, sem refatoração da lógica de negócio.
 
