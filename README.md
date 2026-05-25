@@ -210,42 +210,93 @@ santander-ml-pipeline/
 
 ### 3.3 Guia de Reprodução Passo a Passo
 
-#### Passo 1 — Clonar o Repositório
+Há dois caminhos suportados — escolha o que se aplica ao seu ambiente:
+
+- **Caminho A — Ambiente Padrão:** internet aberta, sem proxy interceptado, repositório PyPI público acessível.
+- **Caminho B — Ambiente Corporativo:** proxy corporativo, SSL interceptado, Nexus/Artifactory interno ou restrição de saída para `pypi.org`. Use o script `setup_enterprise.ps1` / `setup_enterprise.sh` que já trata `--trusted-host`, `--index-url` e cria toda a estrutura de pastas.
+
+#### Passo 1 — Clonar o Repositório (comum aos dois caminhos)
 
 ```bash
 git clone https://github.com/<seu-usuario>/santander-ml-pipeline.git
 cd santander-ml-pipeline
 ```
 
-#### Passo 2 — Criar e Ativar o Ambiente Virtual
+---
 
-```bash
+#### Caminho A — Ambiente Padrão
+
+```powershell
+# 1. venv
 python -m venv venv
-```
 
-```bash
-# Windows (PowerShell)
-.\venv\Scripts\Activate.ps1
+# 2. Ativar
+.\venv\Scripts\Activate.ps1          # Windows (PowerShell)
+# source venv/bin/activate           # Linux / macOS
 
-# Linux / macOS
-source venv/bin/activate
-```
-
-#### Passo 3 — Instalar Dependências
-
-```bash
+# 3. Instalar dependências (PyPI público)
 pip install -r requirements.txt
+
+# 4. PYTHONPATH (imports relativos do pacote src/)
+$env:PYTHONPATH = "."                # PowerShell
+# export PYTHONPATH=.                # bash/zsh
 ```
 
-#### Passo 4 — Configurar o PYTHONPATH
+Pronto. Siga para a [seção 3.4](#34-executando-o-pipeline).
+
+---
+
+#### Caminho B — Ambiente Corporativo (Proxy / VPN / SSL interceptado)
+
+O projeto inclui dois scripts de bootstrap que automatizam o setup em redes corporativas restritas:
+
+| Plataforma | Script | O que ele faz |
+| --- | --- | --- |
+| Windows PowerShell | `setup_enterprise.ps1` | venv + `pip install` com `--trusted-host` + cria `data/{raw,processed,logs}`, `reports/`, `mlruns/` + define `PYTHONPATH`, `MLFLOW_TRACKING_URI`, `RAW_DATA_URL` na sessão |
+| Linux / macOS bash  | `setup_enterprise.sh`  | Equivalente para shells POSIX |
+
+**Execução no Windows:**
+
+```powershell
+# 1. Liberar execução do script só nesta sessão (se a Política de Execução estiver restrita)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# 2. Rodar o bootstrap (cria venv, instala deps, prepara pastas e env vars)
+.\setup_enterprise.ps1
+
+# 3. Executar o pipeline (o script já deixou tudo configurado)
+python src/pipeline_manager.py
+```
+
+**Execução no Linux / macOS:**
 
 ```bash
-# Windows (PowerShell) — necessário para imports relativos
-$env:PYTHONPATH = "."
-
-# Linux / macOS
-export PYTHONPATH=.
+chmod +x setup_enterprise.sh
+./setup_enterprise.sh
+python src/pipeline_manager.py
 ```
+
+**Apontando para um Nexus / Artifactory interno**
+
+Por padrão os scripts usam `pypi.org` com `--trusted-host` apenas para tolerar SSL interceptado. Se sua empresa exige espelho interno (ex: `nexus.intranet/repository/pypi-proxy`), edite as variáveis no topo do `setup_enterprise.ps1`:
+
+```powershell
+# Linhas 14–16 do setup_enterprise.ps1
+$INTERNAL_PYPI_URL = "https://nexus.intranet/repository/pypi-proxy/simple"
+$TRUSTED_HOST      = "nexus.intranet"
+$TRUSTED_HOST_2    = "nexus.intranet"
+```
+
+Ou, para o `setup_enterprise.sh`, substitua o bloco `pip install` por:
+
+```bash
+pip install \
+    --index-url https://nexus.intranet/repository/pypi-proxy/simple \
+    --trusted-host nexus.intranet \
+    -r requirements.txt
+```
+
+> **Por que esse caminho existe:** em ambientes corporativos típicos (incluindo redes Santander), o proxy reescreve certificados TLS, o que faz o `pip` falhar com `SSLError: CERTIFICATE_VERIFY_FAILED` mesmo em máquinas com internet. Os flags `--trusted-host` + `--index-url` instruem o `pip` a aceitar o certificado interceptado para hosts específicos, sem desabilitar a verificação globalmente.
 
 ---
 
