@@ -333,3 +333,34 @@ class TestAdminReloadWithValidToken:
 
         assert response.status_code == 200
         assert response.json()["sucesso"] is False
+
+
+# ---------------------------------------------------------------------------
+# /predict — rate limiting (slowapi)
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+class TestPredictRateLimit:
+    def test_exceeding_limit_returns_429(
+        self,
+        api_client: TestClient,
+        dummy_model_loaded: object,
+    ) -> None:
+        """Acima do limite (10/min) o endpoint responde 429 (Too Many Requests)."""
+        from src import api
+
+        api.limiter.enabled = True
+        try:
+            api.limiter.reset()
+        except Exception:
+            pass
+
+        try:
+            codes = [
+                api_client.post("/predict", json=_VALID_PAYLOAD).status_code
+                for _ in range(12)
+            ]
+        finally:
+            api.limiter.enabled = False
+
+        assert 429 in codes, f"esperava ao menos um 429, obtido: {codes}"
+        assert codes.count(200) <= 10

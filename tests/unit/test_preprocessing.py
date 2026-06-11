@@ -122,3 +122,47 @@ class TestPreprocessData:
         preprocess_data(raw_dataset, out)
         df = pd.read_csv(out)
         assert pd.isna(df.loc[row_index, column]) is expected_nan
+
+
+@pytest.mark.unit
+class TestPreprocessDaskPath:
+    def test_dask_path_writes_output_and_maps_zeros(
+        self, raw_dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """USE_DASK=true força o caminho Dask (`_preprocess_dask`)."""
+        out = tmp_path / "processed_dask.csv"
+        monkeypatch.setenv("USE_DASK", "true")
+
+        preprocess_data(raw_dataset, out)
+
+        assert out.exists()
+        df = pd.read_csv(out)
+        # plas=0 da linha 0 deve ter virado NaN também no caminho Dask
+        assert pd.isna(df.loc[0, "plas"])
+
+
+@pytest.mark.unit
+class TestPreprocessErrorPropagation:
+    def test_permission_error_is_reraised(
+        self, raw_dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src import preprocessing
+
+        def _boom(*_: object, **__: object) -> None:
+            raise PermissionError("sem permissão de escrita")
+
+        monkeypatch.setattr(preprocessing, "_preprocess_pandas", _boom)
+        with pytest.raises(PermissionError):
+            preprocess_data(raw_dataset, tmp_path / "out.csv")
+
+    def test_generic_exception_is_reraised(
+        self, raw_dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src import preprocessing
+
+        def _boom(*_: object, **__: object) -> None:
+            raise RuntimeError("falha inesperada no parser")
+
+        monkeypatch.setattr(preprocessing, "_preprocess_pandas", _boom)
+        with pytest.raises(RuntimeError):
+            preprocess_data(raw_dataset, tmp_path / "out.csv")

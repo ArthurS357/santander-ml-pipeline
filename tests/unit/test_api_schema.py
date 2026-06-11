@@ -64,6 +64,66 @@ class TestPredictSchema:
 
 
 @pytest.mark.unit
+class TestPredictDomainValidation:
+    """Validação forte de domínio (Field ranges + extra='forbid' + strict)."""
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("preg", -1.0),  # ge=0
+            ("preg", 21.0),  # le=20
+            ("plas", 0.0),  # gt=0
+            ("plas", 300.0),  # le=250
+            ("pres", 0.0),  # gt=0
+            ("mass", 0.0),  # gt=0
+            ("mass", 150.0),  # le=100
+            ("pedi", -0.1),  # ge=0
+            ("pedi", 5.0),  # le=3
+            ("age", -5.0),  # ge=0
+            ("age", 200.0),  # le=120
+        ],
+        ids=lambda v: str(v),
+    )
+    def test_out_of_range_returns_422(
+        self, api_client: TestClient, field: str, value: float
+    ) -> None:
+        response = api_client.post("/predict", json=_payload_with_invalid(field, value))
+        assert response.status_code == 422
+
+    def test_extra_field_is_forbidden(self, api_client: TestClient) -> None:
+        payload = dict(_VALID_PAYLOAD)
+        payload["unexpected"] = 1.0
+        response = api_client.post("/predict", json=payload)
+        assert response.status_code == 422
+
+    def test_string_number_rejected_in_strict_mode(
+        self, api_client: TestClient
+    ) -> None:
+        # strict=True: string numérica não é coagida para float.
+        response = api_client.post(
+            "/predict", json=_payload_with_invalid("plas", "85.0")
+        )
+        assert response.status_code == 422
+
+    def test_boundary_values_are_accepted(
+        self, api_client: TestClient, dummy_model_loaded: object
+    ) -> None:
+        # Valores nos limites válidos passam na validação e chegam ao modelo.
+        payload = {
+            "preg": 0.0,
+            "plas": 250.0,
+            "pres": 150.0,
+            "skin": 0.0,
+            "test": 0.0,
+            "mass": 100.0,
+            "pedi": 3.0,
+            "age": 120.0,
+        }
+        response = api_client.post("/predict", json=payload)
+        assert response.status_code == 200
+
+
+@pytest.mark.unit
 class TestAdminEndpointSafety:
     def test_admin_reload_uses_constant_time_comparison(self) -> None:
         """`secrets.compare_digest` é o método correto contra timing attacks."""

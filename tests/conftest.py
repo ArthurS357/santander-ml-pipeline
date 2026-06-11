@@ -86,6 +86,12 @@ def isolated_train_module(
 
     yield train_mod
 
+    # Fecha o pool de conexões do engine efêmero (evita ResourceWarning).
+    try:
+        train_mod.engine.dispose()
+    except Exception:
+        pass
+
     # Restaura o módulo original para não contaminar outros testes
     sys.modules.pop("src.train", None)
     if original is not None:
@@ -118,3 +124,15 @@ def _no_user_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
         sys.path.insert(0, str(project_root))
     # Também limpa variáveis que poderiam vazar de uma sessão anterior
     os.environ.pop("MODEL_URI", None)
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limit() -> Iterator[None]:
+    """Desabilita o rate limiter por padrão — evita 429 entre testes que
+    chamam /predict. O teste dedicado reativa explicitamente via `enabled`.
+    """
+    from src import api
+
+    api.limiter.enabled = False
+    yield
+    api.limiter.enabled = False

@@ -100,3 +100,53 @@ def test_invalid_selection_metric_falls_back_silently(
     assert any("fantasy_metric_xyz" in record.message for record in caplog.records), (
         "esperava warning sobre métrica inválida"
     )
+
+
+@pytest.mark.integration
+def test_incremental_bigdata_saves_wrapper_imputer_and_alias(
+    isolated_train_module: object,
+    sample_dataset: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fluxo Big Data: wrapper (imputer+SGD) salvo, holdout dedicado, alias champion.
+
+    Valida a correção do bug em que o imputer não era persistido e o holdout
+    era o próprio chunk de treino.
+    """
+    import mlflow
+    import mlflow.sklearn
+    import pandas as pd
+
+    train_mod = isolated_train_module
+
+    # Força o modo incremental e usa chunk/holdout pequenos p/ o dataset de 30 linhas.
+    monkeypatch.setenv("USE_DASK", "true")
+    monkeypatch.setenv("BIGDATA_CHUNK_SIZE", "10")
+    monkeypatch.setenv("BIGDATA_HOLDOUT_ROWS", "10")
+
+    train_mod.train_model(sample_dataset)
+
+    client = mlflow.tracking.MlflowClient()
+
+    # Alias 'champion' aponta para a versão registrada.
+    champion = client.get_model_version_by_alias("PimaDiabetesClassifier", "champion")
+    assert champion is not None
+
+    # O artefato carregado é o wrapper com imputer AJUSTADO + classificador.
+    model = mlflow.sklearn.load_model("models:/PimaDiabetesClassifier@champion")
+    assert isinstance(model, train_mod.IncrementalDiabetesModel)
+    assert hasattr(model.imputer, "statistics_"), "imputer não foi salvo/ajustado"
+
+    # Predição ponta-a-ponta sobre features cruas (com imputação interna).
+    features = pd.read_csv(sample_dataset).drop("class", axis=1).head(3)
+    preds = model.predict(features)
+    assert len(preds) == 3
+
+    # O run incremental registrou métricas de holdout (não do chunk de treino).
+    experiment = client.get_experiment_by_name("Pima_Diabetes_Pipeline")
+    assert experiment is not None
+    runs = client.search_runs([experiment.experiment_id])
+    sgd_runs = [r for r in runs if r.data.params.get("algorithm") == "SGDClassifier"]
+    assert sgd_runs, "esperava um run de treinamento incremental SGD"
+    assert "accuracy" in sgd_runs[0].data.metrics
+    assert int(sgd_runs[0].data.params["holdout_rows"]) > 0
