@@ -43,7 +43,10 @@ services:
       - INFERENCE_LOG_FILE=data/logs/inference_logs.csv
       - DRIFT_THRESHOLD=0.5
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      # Liveness: 200 enquanto o processo responde. Para esta stack de
+      # observabilidade queremos coletar /metrics mesmo antes do modelo
+      # carregar, então NÃO usar /health/ready (503 sem modelo) aqui.
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -86,9 +89,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Credenciais padrão (altere em produção via secrets)
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=santander2026
+      # Credenciais via env vars (.env, não versionado). Fallbacks só para
+      # facilitar o subir local — troque em produção via secrets.
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
       # Datasource provisionada automaticamente
       - GF_DATASOURCES_DEFAULT_NAME=Prometheus
     volumes:
