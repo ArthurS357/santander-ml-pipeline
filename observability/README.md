@@ -14,11 +14,16 @@ docker-compose -f docker-compose.observability.yml up -d
 docker-compose -f docker-compose.observability.yml ps
 ```
 
-| Serviço    | URL                          | Credenciais              |
-|------------|------------------------------|--------------------------|
-| API        | http://localhost:8000        | —                        |
-| Prometheus | http://localhost:9090        | —                        |
-| Grafana    | http://localhost:3000        | `admin` / `santander2026`|
+| Serviço    | URL                          | Credenciais                          |
+|------------|------------------------------|--------------------------------------|
+| API        | http://localhost:8000        | —                                    |
+| Prometheus | http://localhost:9090        | —                                    |
+| Grafana    | http://localhost:3000        | `GF_SECURITY_ADMIN_*` (ver `.env`)   |
+
+> **Credenciais do Grafana:** definidas via `GF_SECURITY_ADMIN_USER` /
+> `GF_SECURITY_ADMIN_PASSWORD` no arquivo `.env` (copie de `.env.example`).
+> Sem `.env`, o compose usa o fallback `admin` / `admin` — **troque antes de
+> qualquer ambiente compartilhado.**
 
 ---
 
@@ -101,6 +106,54 @@ Métricas expostas pelo `prometheus-fastapi-instrumentator`:
 | `http_request_size_bytes` | Summary | Tamanho do corpo das requests |
 | `http_response_size_bytes` | Summary | Tamanho do corpo das respostas |
 | `http_requests_in_progress` | Gauge | Requests sendo processadas agora |
+
+---
+
+## 🧠 Métricas ML Customizadas
+
+Além das métricas HTTP, a API expõe métricas de **negócio** no mesmo `/metrics`,
+úteis para detectar drift de comportamento do modelo em tempo real:
+
+| Métrica | Tipo | Descrição |
+|---|---|---|
+| `diabetes_predictions_total{resultado="positivo\|negativo"}` | Counter | Total de predições por classe |
+| `diabetes_prediction_confidence` | Histogram | Distribuição da confiança (probabilidade máxima) |
+
+### Taxa de predições positivas (PromQL)
+
+```promql
+sum(rate(diabetes_predictions_total{resultado="positivo"}[5m]))
+/
+sum(rate(diabetes_predictions_total[5m]))
+```
+
+> **Alerta de drift de conceito:** um salto sustentado na taxa de positivos
+> (ex.: de ~35% para ~70%) sem mudança no perfil de entrada sugere que a
+> população mudou ou que o modelo degradou — investigue com o Data Drift Report.
+
+### Confiança média (PromQL)
+
+```promql
+rate(diabetes_prediction_confidence_sum[5m])
+/
+rate(diabetes_prediction_confidence_count[5m])
+```
+
+---
+
+## 📉 Data Drift Report (PSI)
+
+Complementa as métricas em tempo real com uma análise **offline/batch** de drift
+de distribuição, baseada em **PSI (Population Stability Index)** — sem Evidently.
+
+```bash
+# Compara o dataset de treino (referência) com os logs de inferência
+PYTHONPATH=. python src/generate_report.py
+# Saída: reports/drift_report_YYYYMMDD_HHMMSS.json (+ .md)
+```
+
+Limiares de PSI por feature: `≤ 0.20` 🟢 estável · `0.20–0.25` 🟡 moderado ·
+`> 0.25` 🔴 significativo. Detalhes em [`README.md` §3.5.3](../README.md).
 
 ---
 

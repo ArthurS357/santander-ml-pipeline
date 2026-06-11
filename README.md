@@ -25,8 +25,9 @@
 ## 🚀 Novas Funcionalidades (v2.0)
 
 - **Modo Big Data Automático:** Transição de Pandas para Dask + SGDClassifier com `partial_fit` para arquivos > 500MB.
-- **Observabilidade Ativa:** Inference Logging em CSV + métricas Prometheus (`/metrics`). O relatório Evidently de Data Drift está **planejado** como melhoria futura — desabilitado nesta versão por incompatibilidade do `pydantic.v1` com Python 3.14.
+- **Observabilidade Ativa:** Inference Logging em CSV + métricas Prometheus (`/metrics`), incluindo métricas ML customizadas (`diabetes_predictions_total`, `diabetes_prediction_confidence`). **Data Drift próprio via PSI** (Population Stability Index) — implementação leve sem Evidently, gera relatório JSON/MD.
 - **Deploy Cloud-Native:** Kubernetes HPA com readiness/liveness probes separadas.
+- **Governança de Modelos:** MLflow Signature + input_example em todo modelo registrado, e alias `@champion` separando "registrado" de "aprovado para produção".
 
 ---
 
@@ -52,7 +53,7 @@ O objetivo não é apenas construir um modelo — é construir a **infraestrutur
 | **CI/CD**                      | Integração e deploy contínuos automáticos         | GitHub Actions com Security Gate (black, flake8, bandit) + push GHCR      |
 | **Orquestração**               | Fluxo completo com agendamento de pipelines       | `MLPipelineOrchestrator` com DAG sequencial + `schedule`                  |
 | **Gerenciamento de Artefatos** | Versionamento de modelos, métricas e dataset      | MLflow Tracking + **Model Registry** + tabela `training_dataset_snapshots` (hash SHA-256 + schema + vínculo com run) |
-| **Observabilidade**            | Métricas de desempenho em tempo real              | Prometheus `/metrics` + Inference Logging (Data Drift Report no roadmap)  |
+| **Observabilidade**            | Métricas de desempenho em tempo real              | Prometheus `/metrics` (HTTP + ML customizadas) + Inference Logging + Data Drift próprio (PSI) |
 | **Escalabilidade**             | Dimensionamento horizontal dos recursos           | Docker + Kubernetes (Deployment, Service, HPA) + GitHub Actions           |
 | **Segurança**                  | Análise estática de vulnerabilidades (SAST)       | Bandit no CI + Secrets via K8s Opaque + Shift-Left Security               |
 
@@ -437,6 +438,57 @@ O mesmo hash é gravado como tag `dataset_sha256` no MLflow, permitindo auditar 
 
 ---
 
+### 3.5.2 Governança de Modelos (Signature + Alias `champion`)
+
+Todo modelo registrado carrega:
+
+- **Signature + `input_example`** — schema de entrada/saída inferido (`mlflow.models.infer_signature`), habilitando enforcement de tipos no serving e auto-documentação no MLmodel.
+- **Alias `@champion`** — aponta para a versão aprovada para produção. Separa "modelo **registrado**" (qualquer versão treinada) de "modelo **aprovado**". Promover é só mover o alias — sem redeploy.
+
+```bash
+# A API consome o alias, não uma versão fixa:
+export MODEL_URI="models:/PimaDiabetesClassifier@champion"
+```
+
+> No modo **Big Data**, o artefato salvo é o `IncrementalDiabetesModel` — um wrapper que une `SimpleImputer` + `SGDClassifier` num único objeto. Isso corrige o defeito anterior em que apenas o classificador era salvo (a inferência recebia NaN crus). O holdout incremental é **dedicado**: os últimos `BIGDATA_HOLDOUT_ROWS` registros (default 1000) são reservados via buffer rolante e nunca entram no `partial_fit`.
+
+---
+
+### 3.5.3 Data Drift Report (PSI próprio)
+
+Monitoramento de drift **sem Evidently** — implementação leve baseada em **PSI (Population Stability Index)**, comparando a distribuição do dataset de treino (referência) contra os logs de inferência em produção (`data/logs/inference_logs.csv`).
+
+```bash
+# Gera reports/drift_report_YYYYMMDD_HHMMSS.json (+ .md)
+PYTHONPATH=. python src/generate_report.py
+```
+
+O relatório contém, por feature numérica: **PSI**, taxa de missing e nível de alerta; além de taxa de predições positivas e distribuição de confiança. Limiares:
+
+| PSI | Interpretação | Nível |
+| --- | --- | --- |
+| ≤ 0.20 | Sem mudança relevante | 🟢 none |
+| 0.20 – 0.25 | Mudança moderada — investigar | 🟡 moderate |
+| > 0.25 | Mudança significativa — ação recomendada | 🔴 high |
+
+> Se houver menos de 10 inferências logadas, o report é abortado (dados insuficientes) e retorna `None` — o `pipeline_manager` segue normalmente.
+
+---
+
+### 3.5.4 Demo End-to-End (1 comando)
+
+```bash
+# Linux / macOS
+./scripts/demo_end_to_end.sh
+
+# Windows
+.\scripts\demo_end_to_end.ps1
+```
+
+Executa: deps → `pytest -v` → pipeline → sobe a API → healthchecks (`/health/live`, `/health/ready`) → predição de exemplo → amostra das métricas Prometheus → encerra a API.
+
+---
+
 ### 3.6 Acessando o MLflow UI
 
 ```bash
@@ -519,31 +571,100 @@ Toda alteração no branch `main` dispara automaticamente o workflow `.github/wo
 ```
 Push/PR → main
     │
-    ├─ 1. Checkout + Python 3.14
-    ├─ 2. pip install -r requirements.txt + requirements-dev.txt
+    ├─ 1. Checkout + 🔑 gitleaks (secret scan)
+    ├─ 2. Python 3.14 + pip install requirements(.txt + -dev.txt)
     ├─ 3. 🛡️ Security Gate:
     │     ├─ black --check src/              ← formatação PEP 8
     │     ├─ flake8 src/                     ← linting estático
-    │     └─ bandit -r src/                  ← SAST (vulnerabilidades)
+    │     ├─ bandit -r src/                  ← SAST (código)
+    │     ├─ pip-audit -r requirements.txt   ← CVEs em dependências (informativo)
+    │     └─ checkov -d k8s/                  ← SAST de IaC/Kubernetes (informativo)
     ├─ 4. python src/pipeline_manager.py     ← executa o DAG completo
-    ├─ 5. pytest src/test_api.py -v          ← valida a API
-    ├─ 6. docker login ghcr.io               ← auth via GITHUB_TOKEN
-    ├─ 7. docker build + push GHCR           ← imagem :latest + :sha
+    ├─ 5. pytest -v --cov=src --cov-fail-under=80   ← suíte + gate de cobertura 80%
+    ├─ 6. docker build (:latest + :sha) + 🐳 trivy   ← scan da imagem (CRITICAL/HIGH, bloqueante)
+    ├─ 7. docker push GHCR                    ← publicação da imagem
     └─ 8. Deploy (Staging simulation)
 ```
 
-> **Shift-Left Security:** black, flake8 e bandit rodam **antes** dos testes. O CI falha imediatamente se houver falha de formatação, lint ou vulnerabilidade — código inseguro nunca chega à produção.
+> **Shift-Left + DevSecOps:** os gates rodam **antes** do build/deploy. Camadas:
+> - **gitleaks** — bloqueia se houver segredo versionado.
+> - **black/flake8/bandit** — formatação, lint e SAST de código (bloqueantes).
+> - **pip-audit/checkov** — CVEs de dependências e IaC (informativos na PoC via `continue-on-error`; vire bloqueantes em produção removendo essa flag).
+> - **trivy** — scan da imagem Docker por CVEs CRITICAL/HIGH (bloqueante, no push para `main`).
+> - **`--cov-fail-under=80`** — o CI falha se a cobertura cair abaixo de 80%.
 
 ---
 
 ### 3.10 Deploy Cloud-Native (Kubernetes)
 
 ```bash
-kubectl apply -f k8s/configmap-secret.yaml
+# 1. Crie o Secret FORA do Git (não aplique placeholders em produção).
+#    O bloco Secret em configmap-secret.yaml contém apenas PLACEHOLDERS.
+kubectl create secret generic santander-ml-secrets \
+  --from-literal=DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/DBNAME' \
+  --from-literal=ADMIN_RELOAD_TOKEN="$(openssl rand -base64 32)"
+
+# 2. ConfigMap (não sensível) + carga da aplicação
+kubectl apply -f k8s/configmap-secret.yaml   # aplica apenas o ConfigMap em produção
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 kubectl apply -f k8s/hpa.yaml
 ```
+
+#### Tag de imagem: PoC vs Produção
+
+| Ambiente | Tag | Por quê |
+| --- | --- | --- |
+| **PoC (este repo)** | `:latest` | Tag publicada pelo CI no GHCR; simplifica a reprodução. `k8s/deployment.yaml` usa `:latest`. |
+| **Produção** | `:${GITHUB_SHA}` | Tag **imutável** também publicada pelo CI — garante rollback determinístico e rastreabilidade. |
+
+O CI publica **as duas** tags a cada push na `main`. Para deploy imutável em produção, faça o pin pelo SHA do commit em vez de `:latest`:
+
+```bash
+kubectl set image deployment/santander-ml-api \
+  ml-api=ghcr.io/<owner>/santander-ml-pipeline/pima-diabetes-api:<github-sha>
+```
+
+> Este é exatamente o comando demonstrado (comentado) no passo *Deploy Simulation* do `.github/workflows/ci.yml`.
+
+#### Liveness vs Readiness (probes)
+
+| Probe | Endpoint | Resposta | Quando usar |
+| --- | --- | --- | --- |
+| **Liveness** | `/health/live` | sempre `200` enquanto o processo responde | Reinicia o container só se o processo travar. Usado no `livenessProbe` do K8s **e** no `healthcheck` do `docker-compose.observability.yml` (a stack precisa coletar `/metrics` mesmo antes de o modelo carregar). |
+| **Readiness** | `/health/ready` | `200` com modelo carregado, `503` sem modelo | Bloqueia tráfego (remove o pod do Service/LB) até o modelo estar pronto. Usado no `readinessProbe` do K8s. |
+
+> ⚠️ O endpoint legado `/` retorna **sempre 200** e **não** deve ser usado como probe — daria falso positivo de saúde.
+
+---
+
+### 3.11 Mapa de Evidências (para a banca)
+
+Onde demonstrar cada requisito do case e o comando/evidência correspondente:
+
+| Pilar / Requisito | Onde demonstrar | Comando / Evidência |
+|---|---|---|
+| **Treinamento multi-modelo** | `src/train.py` + MLflow UI | `make pipeline` → `mlflow ui` (comparar RF/LR/SVM) |
+| **Seleção por métrica de negócio** | `MODEL_SELECTION_METRIC` | `MODEL_SELECTION_METRIC=recall make pipeline` |
+| **Gerenciamento de Artefatos** | MLflow Registry + snapshots | Alias `@champion`, signature, tabela `training_dataset_snapshots` |
+| **Governança** | [Model Card](docs/model_card.md) · [Data Card](docs/data_card.md) | `dataset_sha256` liga dado→modelo |
+| **CI/CD + DevSecOps** | `.github/workflows/ci.yml` | gitleaks · bandit · pip-audit · checkov · trivy · `--cov-fail-under=80` |
+| **Orquestração** | `src/pipeline_manager.py` | `python src/pipeline_manager.py --demo` (scheduler) |
+| **API + Validação forte** | `src/api.py` (`PatientData`) | `make api` → Swagger `/docs`; payload fora de faixa → 422 |
+| **Rate limiting** | `src/api.py` (slowapi) | repetir `POST /predict` > 10×/min → 429 |
+| **Observabilidade** | `/metrics` + Grafana | `curl /metrics \| grep diabetes_`; stack em `docker-compose.observability.yml` |
+| **Data Drift** | `src/generate_report.py` (PSI) | `make drift` → `reports/drift_report_*.md` (gerar **ao vivo**) |
+| **Escalabilidade** | `k8s/` (Deployment + HPA) | `kubectl apply -f k8s/`; probes `/health/live` e `/health/ready` |
+| **Performance/Carga** | `tests/performance/locustfile.py` | `make loadtest` — ver [docs/performance.md](docs/performance.md) |
+| **Decisões de arquitetura** | [docs/adr/](docs/adr/) | ADRs 0001–0005 |
+| **Roteiro completo** | [docs/roteiro_apresentacao.md](docs/roteiro_apresentacao.md) | timeline 0–90 min |
+
+> **Relatórios de drift são gerados ao vivo:** `reports/` está no `.gitignore`
+> (não versionado). Rode `make drift` durante a apresentação para gerar o JSON/MD.
+>
+> **Bit executável do script de demo:** em Windows (`core.filemode=false`), o bit
+> de execução do `.sh` é preservado via `git update-index --chmod=+x
+> scripts/demo_end_to_end.sh` (já aplicado) e `.gitattributes` força `eol=lf`.
 
 ---
 
@@ -553,10 +674,11 @@ kubectl apply -f k8s/hpa.yaml
 
 | Limitação                                            | Contexto                                                                        | Solução em Produção                                                                                                    |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| SQLite não suporta múltiplos escritores              | Pipeline sequencial — sem concorrência no PoC                                   | Substituir por PostgreSQL (trocar `DATABASE_URL`)                                                                      |
-| Mediana calculada no dataset completo (data leakage) | Impacto mínimo em 768 linhas                                                    | `sklearn.Pipeline` + `SimpleImputer` ajustado só no treino                                                             |
-| Modelo embarcado na imagem Docker                    | Simplifica o PoC                                                                | Montar `mlruns/` como volume ou carregar do Registry por URI                                                           |
-| **Evidently desabilitado no Python 3.14**            | `pydantic.v1` não é importável no Python 3.14; `generate_data_drift_report()` retorna `None` | Reintroduzir Evidently quando houver release compatível com Pydantic V2/Python 3.14, ou substituir por implementação manual (PSI/KS) |
+| SQLite não suporta múltiplos escritores              | Pipeline sequencial — sem concorrência no PoC                                   | Substituir por PostgreSQL (trocar `DATABASE_URL`) — ver [ADR 0005](docs/adr/0005-sqlite-poc-postgresql-prod.md)        |
+| Imputação por mediana                                | **Sem data leakage:** `SimpleImputer` vive dentro do `sklearn.Pipeline`, ajustado **só no treino** (`X_train`) | Já resolvido; manter o imputer no pipeline ao evoluir features |
+| Modelo embarcado na imagem Docker                    | Simplifica o PoC                                                                | Montar `mlruns/` como volume ou carregar do Registry por URI (`models:/...@champion`)                                  |
+| **Data Drift via PSI próprio (sem Evidently)**       | Evidently incompatível com Python 3.14; `generate_data_drift_report()` usa PSI implementado à mão (numpy) | PSI cobre o caso de uso; reintroduzir Evidently para relatórios HTML ricos quando houver release compatível |
+| Validação `strict=True` exige floats no JSON         | Validação forte: `"plas": 85.0` aceito, `"plas": 85` → 422                      | Comportamento intencional; clientes devem enviar floats (documentado no Swagger e no roteiro) |
 
 ### 4.2 Implementado vs. Roadmap
 
@@ -574,11 +696,22 @@ kubectl apply -f k8s/hpa.yaml
 ├── Snapshot lógico do dataset (SHA-256 + schema + linhas) em training_dataset_snapshots
 ├── docker-compose.observability.yml com API + Prometheus + Grafana
 ├── Kubernetes: Deployment + Service + HPA + ConfigMap/Secret
-└── Pydantic V2 (model_dump) — sem warnings de deprecação
+├── Pydantic V2 (model_dump) — sem warnings de deprecação
+├── Validação forte do PatientData (Field ranges + extra="forbid" + strict)
+├── Métricas ML customizadas no Prometheus (taxa de positivos + confiança)
+├── Data Drift próprio via PSI (relatório JSON/MD, sem Evidently)
+├── MLflow Signature + input_example em todo modelo registrado
+├── Alias @champion no MLflow Registry (governança registrado vs aprovado)
+├── Modo Big Data: IncrementalDiabetesModel (imputer+SGD) com holdout dedicado
+├── Script de demo end-to-end (scripts/demo_end_to_end.sh|.ps1) + Makefile
+├── Rate limiting por IP no /predict (slowapi, 10/min, resposta 429)
+├── DevSecOps no CI: gitleaks + pip-audit + checkov + trivy + cov-fail-under=80
+├── Governança documental: Model Card, Data Card e 5 ADRs (docs/)
+├── Teste de carga (Locust) + relatório de performance (docs/performance.md)
+└── Cobertura de testes 94% (gate de 80% ativo no CI)
 
 🔜 Roadmap (próximas iterações)
-├── Data Drift Report com Evidently — desabilitado nesta versão por incompatibilidade do pydantic.v1 com Python 3.14
-├── Métricas de negócio customizadas (taxa de positivos, distribuição de confiança)
+├── Evidently — substituído por PSI próprio nesta versão; reintroduzir se houver release compatível com Python 3.14
 ├── PostgreSQL (RDS/Cloud SQL) para persistência de metadados
 ├── Retry com backoff exponencial na ingestão (biblioteca tenacity)
 ├── Apache Airflow ou Prefect para DAGs visuais com retry e SLA
