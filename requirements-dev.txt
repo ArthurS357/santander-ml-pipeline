@@ -14,3 +14,15 @@ bandit>=1.7.0
 
 # Testes (já em requirements.txt, listado aqui para execução isolada de CI)
 pytest>=9.0.0
+
+# Cobertura de testes (pytest --cov) — usado no Gate de Testes do CI
+pytest-cov>=5.0.0
+
+# Auditoria de vulnerabilidades em dependências (gate DevSecOps no CI)
+pip-audit>=2.7.0
+
+# Análise estática de IaC / manifests Kubernetes (gate DevSecOps no CI)
+checkov>=3.2.0
+
+# Testes de carga / performance (execução local — ver docs/performance.md)
+locust>=2.20.0
