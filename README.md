@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![MLflow](https://img.shields.io/badge/MLflow-3.10-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org/)
+[![MLflow](https://img.shields.io/badge/MLflow-3.11+-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![CI/CD](https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/features/actions)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
@@ -727,6 +727,34 @@ A solução demonstra domínio do **ciclo de vida completo de Machine Learning e
 - **Reprodutibilidade:** qualquer pessoa com Python 3.14 e `pip install -r requirements.txt` consegue executar o pipeline do zero — sem provisionar nenhuma infraestrutura externa.
 - **Rastreabilidade:** cada execução gera registros imutáveis no MLflow (artefatos + métricas) e no SQLite (metadados), permitindo auditar qualquer predição até seu run de origem.
 - **Evolução incremental:** cada componente foi projetado para ser substituído pela sua versão de produção de forma independente, sem refatoração da lógica de negócio.
+
+---
+
+## 🛡️ Estado de Qualidade e Segurança
+
+> Estado verificado em `2026-06-11` — commit `e1291b4`, Python 3.14.4, runner `ubuntu-latest`.
+
+### Gates de CI/CD
+
+| Gate | Ferramenta | Resultado |
+|---|---|---|
+| Vulnerabilidades de dependências | `pip-audit` | ✅ PASS — 8 CVEs corrigidos |
+| Análise estática de segurança (SAST) | `bandit` | ✅ PASS |
+| Formatação de código | `black` | ✅ PASS |
+| Linting estático | `flake8` | ✅ PASS |
+| IaC / Manifestos Kubernetes | `checkov` | ✅ PASS — 89 aprovados, 3 suprimidos (PoC), 0 falhas |
+| Segredo embarcado na imagem | `trivy` | ✅ PASS — `ENV ADMIN_RELOAD_TOKEN` removido |
+| Cobertura de testes | `pytest-cov` | ✅ PASS — **94.44%** (gate: ≥ 85%) |
+| Suíte de testes | `pytest` | ✅ PASS — **123 aprovados, 0 falhas** |
+
+### Políticas de Hardening aplicadas
+
+- **Dependências:** todos os pacotes com CVE publicado foram atualizados para a versão corrigida mínima.
+- **Imagem Docker:** nenhum segredo embarcado; credenciais injetadas exclusivamente via Kubernetes Secret em tempo de execução.
+- **Kubernetes:** todos os manifestos namespaced (`santander-ml`); `automountServiceAccountToken: false`; `imagePullPolicy: Always`; supressões de check documentadas via annotations.
+- **Testes:** isolamento total via `tmp_path` (SQLite + MLflow file store efêmero); sem efeitos colaterais entre execuções.
+
+Consulte [`docs/adr/0006-devsecops-pipeline-hardening.md`](docs/adr/0006-devsecops-pipeline-hardening.md) para o registro completo de decisões e [`docs/status_report.md`](docs/status_report.md) para o mapa de evidências.
 
 ---
 
