@@ -6,7 +6,8 @@
 # (santander-ml-secrets) — nenhum valor sensível em texto plano.
 #
 # Hardening (P2):
-#   - Imagem com tag imutável (sem :latest)
+#   - PoC usa :latest (tag publicada pelo CI). Em produção, pinar a tag
+#     imutável :${github.sha} (também publicada pelo CI) — ver README §3.10.
 #   - securityContext: runAsNonRoot, readOnlyRootFilesystem, drop ALL caps
 #   - emptyDir para /tmp e /app/data/logs (única gravação em runtime)
 #
@@ -55,9 +56,10 @@ spec:
 
       containers:
         - name: ml-api
-          # Tag imutável obrigatória — substitua a versão a cada release.
-          # Para reproduzir o comportamento antigo (não recomendado), use ':latest'.
-          image: ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:1.0.0
+          # PoC: :latest é a tag que o CI publica no GHCR (ci.yml).
+          # Produção: substituir por :${github.sha} (tag imutável também
+          # publicada pelo CI) via `kubectl set image` — ver README §3.10.
+          image: ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
