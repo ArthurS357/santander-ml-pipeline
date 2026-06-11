@@ -18,13 +18,15 @@
 #   kubectl apply -f k8s/hpa.yaml
 #   kubectl apply -f k8s/networkpolicy.yaml
 ###############################################################################
-# checkov:skip=CKV_K8S_43: "PoC: using tag instead of digest"
-# checkov:skip=CKV_K8S_35: "PoC: secrets as env vars is acceptable for this scope"
-# checkov:skip=CKV_K8S_14: "PoC: acceptable to not fix tag rigorously"
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: santander-ml-api
+  # Supressões Checkov (escopo PoC) — formato exigido pelo runner K8s
+  annotations:
+    checkov.io/skip1: 'CKV_K8S_43=PoC: using tag instead of digest'
+    checkov.io/skip2: 'CKV_K8S_35=PoC: secrets as env vars is acceptable for this scope'
+    checkov.io/skip3: 'CKV_K8S_14=PoC: acceptable to not fix tag rigorously'
   namespace: santander-ml
   labels:
     app: santander-ml-api
