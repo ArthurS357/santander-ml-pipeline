@@ -5,12 +5,15 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Union, cast
+from typing import Mapping, cast
 
 import mlflow
 import mlflow.sklearn
 import numpy as np
 import pandas as pd
+from mlflow.models import infer_signature
+from mlflow.models.model import ModelInfo
+from mlflow.tracking import MlflowClient
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression, SGDClassifier
@@ -55,6 +58,11 @@ SUPPORTED_SELECTION_METRICS = frozenset(
     }
 )
 DEFAULT_SELECTION_METRIC = "f1_score"
+
+# Nome único e estável no MLflow Model Registry.
+REGISTRY_NAME = "PimaDiabetesClassifier"
+# Alias que aponta para o modelo aprovado para produção (governança).
+CHAMPION_ALIAS = "champion"
 
 
 class TrainingRecord(Base):
@@ -198,9 +206,8 @@ def _resolve_selection_metric() -> str:
 
 # Alias para qualquer tipo aceito pelas funções do sklearn.metrics.
 # Cobre tanto saídas de `pipeline.predict()` (np.ndarray) quanto holdouts
-# em DataFrames (pd.Series). Mantido como `np.typing.ArrayLike` para evitar
-# importação adicional de tipos numpy/pandas no nível module.
-ArrayLikeMetric = Union[pd.Series, np.ndarray]
+# em DataFrames (pd.Series).
+ArrayLikeMetric = pd.Series | np.ndarray
 
 
 def _compute_metrics(
@@ -236,6 +243,69 @@ def _compute_metrics(
     else:
         metrics["roc_auc"] = float("nan")
     return metrics
+
+
+@dataclass
+class IncrementalDiabetesModel:
+    """Wrapper que une imputer + classificador incremental num artefato único.
+
+    Resolve o bug em que o modo Big Data salvava apenas o `SGDClassifier`,
+    descartando o `SimpleImputer` — a inferência então recebia NaN crus.
+    Expõe a mesma interface (`predict`/`predict_proba`) que a API consome.
+    """
+
+    imputer: SimpleImputer
+    classifier: SGDClassifier
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        return cast(np.ndarray, self.classifier.predict(self.imputer.transform(X)))
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        return cast(
+            np.ndarray, self.classifier.predict_proba(self.imputer.transform(X))
+        )
+
+
+def _log_model_with_signature(
+    model: object, X_sample: pd.DataFrame, y_pred_sample: np.ndarray
+) -> ModelInfo:
+    """Loga o modelo no MLflow com signature inferida + input_example.
+
+    A signature documenta o schema de entrada/saída no MLmodel, habilitando
+    enforcement de tipos no serving e auto-documentação no Registry.
+    """
+    # float64 evita o aviso de "integer columns" e casa com o payload da API
+    # (PatientData usa floats), garantindo enforcement de schema consistente.
+    X_sample = X_sample.astype("float64")
+    signature = infer_signature(X_sample, y_pred_sample)
+    return mlflow.sklearn.log_model(
+        model, "model", signature=signature, input_example=X_sample
+    )
+
+
+def _register_with_champion_alias(run_id: str, context: str) -> None:
+    """Registra o modelo do run e aponta o alias `champion` para a nova versão.
+
+    O alias separa "modelo registrado" de "modelo aprovado para produção":
+    a API consome `models:/PimaDiabetesClassifier@champion`, então promover
+    um modelo é só mover o alias — sem redeploy.
+    """
+    registered = mlflow.register_model(
+        model_uri=f"runs:/{run_id}/model", name=REGISTRY_NAME
+    )
+    try:
+        MlflowClient().set_registered_model_alias(
+            name=REGISTRY_NAME, alias=CHAMPION_ALIAS, version=registered.version
+        )
+        logger.info(
+            f"Artefato '{REGISTRY_NAME}' ({context}) registrado "
+            f"(Versão: {registered.version}) e alias '@{CHAMPION_ALIAS}' atualizado."
+        )
+    except Exception as exc:  # backend de registry sem suporte a alias
+        logger.warning(
+            f"Modelo registrado (Versão: {registered.version}), mas falhou ao "
+            f"definir alias '@{CHAMPION_ALIAS}': {exc}"
+        )
 
 
 def _train_standard(data_p: Path) -> None:
@@ -323,7 +393,9 @@ def _train_standard(data_p: Path) -> None:
             # Persiste snapshot vinculado a este run
             save_dataset_snapshot(snapshot, mlflow_run_id=run.info.run_id)
 
-            model_info = mlflow.sklearn.log_model(pipeline, "model")
+            model_info = _log_model_with_signature(
+                pipeline, X_test.head(5), predictions[:5]
+            )
 
             save_training_metadata(
                 name,
@@ -350,20 +422,24 @@ def _train_standard(data_p: Path) -> None:
     )
 
     if best_run_id:
-        registry_name = "PimaDiabetesClassifier"
-        registered = mlflow.register_model(
-            model_uri=f"runs:/{best_run_id}/model", name=registry_name
-        )
-        logger.info(
-            f"Artefato '{registry_name}' (algoritmo vencedor: {best_model_name}, "
-            f"métrica: {selection_metric}={best_score:.4f}) "
-            f"registrado no MLflow Registry (Versão: {registered.version})."
+        _register_with_champion_alias(
+            best_run_id,
+            context=(
+                f"algoritmo vencedor: {best_model_name}, "
+                f"{selection_metric}={best_score:.4f}"
+            ),
         )
 
 
 def _train_incremental(data_p: Path) -> None:
-    """Fluxo Big Data: SGDClassifier com partial_fit em chunks de 50 000 linhas."""
-    CHUNK = 50_000
+    """Fluxo Big Data: SGDClassifier com partial_fit em chunks.
+
+    Reserva os últimos `BIGDATA_HOLDOUT_ROWS` registros como holdout dedicado
+    via buffer rolante (memória limitada, sem carregar o arquivo inteiro) e
+    salva imputer + classificador juntos no `IncrementalDiabetesModel`.
+    """
+    CHUNK = int(os.getenv("BIGDATA_CHUNK_SIZE", "50000"))
+    HOLDOUT_ROWS = int(os.getenv("BIGDATA_HOLDOUT_ROWS", "1000"))
     CLASSES = [0, 1]
 
     mlflow.set_experiment("Pima_Diabetes_Pipeline")
@@ -382,58 +458,75 @@ def _train_incremental(data_p: Path) -> None:
         mlflow.set_tag("dataset_sha256", snapshot.dataset_sha256)
         mlflow.set_tag("dataset_rows", snapshot.row_count)
 
-        first_chunk = True
-        n_total = 0
+        state = {"imputer_fitted": False, "n_trained": 0}
 
+        def _fit_on(part: pd.DataFrame) -> None:
+            """Ajusta o imputer no primeiro lote e faz partial_fit no SGD."""
+            if part.empty:
+                return
+            X_part = part.drop("class", axis=1)
+            y_part = part["class"]
+            if not state["imputer_fitted"]:
+                imputer.fit(X_part)
+                state["imputer_fitted"] = True
+            clf.partial_fit(imputer.transform(X_part), y_part, classes=CLASSES)
+            state["n_trained"] += len(part)
+
+        buffer = pd.DataFrame()
         try:
             for chunk in pd.read_csv(data_p, chunksize=CHUNK):
-                X_chunk = chunk.drop("class", axis=1)
-                y_chunk = chunk["class"]
-
-                if first_chunk:
-                    imputer.fit(X_chunk)
-                    first_chunk = False
-
-                X_imp = imputer.transform(X_chunk)
-                clf.partial_fit(X_imp, y_chunk, classes=CLASSES)
-                n_total += len(chunk)
-                logger.info(f"  chunk processado — linhas acumuladas: {n_total}")
+                buffer = pd.concat([buffer, chunk], ignore_index=True)
+                # Mantém só os últimos HOLDOUT_ROWS no buffer; treina o excedente.
+                if len(buffer) > HOLDOUT_ROWS:
+                    overflow = buffer.iloc[:-HOLDOUT_ROWS]
+                    buffer = buffer.iloc[-HOLDOUT_ROWS:].reset_index(drop=True)
+                    _fit_on(overflow)
+                    logger.info(
+                        f"  chunk processado — linhas treinadas: {state['n_trained']}"
+                    )
         except Exception as e:
             logger.error(f"Erro durante treinamento incremental: {e}")
             raise
 
-        # Avaliação final no primeiro chunk (proxy rápido — sem holdout dedicado)
-        try:
-            last_chunk = pd.read_csv(data_p, chunksize=CHUNK)
-            eval_chunk = next(iter(last_chunk))
-            X_eval = imputer.transform(eval_chunk.drop("class", axis=1))
-            y_eval = eval_chunk["class"]
-            preds = clf.predict(X_eval)
-            proba: np.ndarray | None = (
-                clf.predict_proba(X_eval)[:, 1]
-                if hasattr(clf, "predict_proba")
-                else None
-            )
-            metrics = _compute_metrics(y_eval, preds, proba)
-        except Exception:
-            metrics = {
-                "accuracy": 0.0,
-                "balanced_accuracy": 0.0,
-                "f1_score": 0.0,
-                "precision": 0.0,
-                "recall": 0.0,
-                "roc_auc": float("nan"),
-            }
+        # Holdout dedicado = buffer final (nunca visto no fit).
+        holdout = buffer
+        if state["n_trained"] == 0:
+            # Dataset menor que o holdout: split simples 80/20 do buffer.
+            split = max(1, int(len(buffer) * 0.8))
+            _fit_on(buffer.iloc[:split])
+            holdout = buffer.iloc[split:].reset_index(drop=True)
+
+        model = IncrementalDiabetesModel(imputer=imputer, classifier=clf)
+
+        # Avaliação no holdout dedicado (sem vazamento de dados de treino).
+        metrics = {
+            "accuracy": 0.0,
+            "balanced_accuracy": 0.0,
+            "f1_score": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "roc_auc": float("nan"),
+        }
+        if not holdout.empty:
+            X_hold = holdout.drop("class", axis=1)
+            y_hold = holdout["class"]
+            preds = model.predict(X_hold)
+            proba = model.predict_proba(X_hold)[:, 1]
+            metrics = _compute_metrics(y_hold, preds, proba)
 
         mlflow.log_param("algorithm", "SGDClassifier")
         mlflow.log_param("loss", "log_loss")
         mlflow.log_param("chunk_size", CHUNK)
-        mlflow.log_param("total_rows", n_total)
+        mlflow.log_param("holdout_rows", len(holdout))
+        mlflow.log_param("total_rows", state["n_trained"])
         for metric_name, metric_value in metrics.items():
-            if metric_value == metric_value:
-                mlflow.log_metric(f"{metric_name}_last_chunk", metric_value)
+            if metric_value == metric_value:  # NaN check
+                mlflow.log_metric(metric_name, metric_value)
 
-        model_info = mlflow.sklearn.log_model(clf, "model")
+        # Sample para signature/input_example (holdout, com fallback no buffer).
+        sig_source = holdout if not holdout.empty else buffer
+        X_sig = sig_source.drop("class", axis=1).head(5)
+        model_info = _log_model_with_signature(model, X_sig, model.predict(X_sig))
 
         save_training_metadata(
             "SGD_Incremental",
@@ -443,21 +536,15 @@ def _train_incremental(data_p: Path) -> None:
             model_info.model_uri,
         )
         logger.info(
-            f"SGD Incremental — linhas: {n_total} | "
+            f"SGD Incremental — treinadas: {state['n_trained']} | "
+            f"holdout: {len(holdout)} | "
             f"acc={metrics['accuracy']:.4f} f1={metrics['f1_score']:.4f}"
         )
 
-        registered = mlflow.register_model(
-            model_uri=f"runs:/{run.info.run_id}/model",
-            name="PimaDiabetesClassifier",
-        )
-        logger.info(
-            f"Artefato 'PimaDiabetesClassifier' (modo incremental SGD) "
-            f"registrado (Versão: {registered.version})."
-        )
+        _register_with_champion_alias(run.info.run_id, context="modo incremental SGD")
 
 
-def train_model(data_path: Union[str, Path]) -> None:
+def train_model(data_path: str | Path) -> None:
     data_p = Path(data_path)
     logger.info(f"Carregando dados processados de: {data_p}")
 
@@ -475,8 +562,11 @@ def train_model(data_path: Union[str, Path]) -> None:
 
 # Exportações usadas pelos testes unitários
 __all__ = [
+    "CHAMPION_ALIAS",
     "DEFAULT_SELECTION_METRIC",
     "DatasetSnapshot",
+    "IncrementalDiabetesModel",
+    "REGISTRY_NAME",
     "SUPPORTED_SELECTION_METRICS",
     "_calculate_sha256",
     "_collect_dataset_snapshot",
