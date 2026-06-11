@@ -42,9 +42,8 @@ ENV INFERENCE_LOG_FILE="data/logs/inference_logs.csv"
 ENV DRIFT_THRESHOLD="0.5"
 # Offline mode: aponte para espelho interno ou deixe o arquivo em data/raw/
 ENV RAW_DATA_URL=""
-# Token administrativo para /admin/reload_model — DEVE ser sobrescrito em produção.
-# Vazio = endpoint nega acesso por padrão (fail-secure).
-ENV ADMIN_RELOAD_TOKEN=""
+# ADMIN_RELOAD_TOKEN NÃO é definido na imagem (evita segredo embarcado).
+# Injete em runtime via K8s Secret (santander-ml-secrets). Ausente = fail-secure.
 
 # Troca para usuário não-root antes de iniciar o servidor
 USER appuser
