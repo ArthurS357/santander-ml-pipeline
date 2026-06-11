@@ -115,6 +115,16 @@ def sample_dataset(tmp_path: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
+def _allow_mlflow_file_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MLflow >=3.11 coloca o file store ('./mlruns') em "maintenance mode" e
+    lança exceção por padrão. Os testes de treino/pipeline usam file store
+    efêmero (file://) em tmp_path para isolamento; reabilitamos via opt-in
+    oficial. Produção usa tracking remoto (http://), não afetado por isto.
+    """
+    monkeypatch.setenv("MLFLOW_ALLOW_FILE_STORE", "true")
+
+
+@pytest.fixture(autouse=True)
 def _no_user_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """Por segurança, remove ADMIN_RELOAD_TOKEN do ambiente antes de cada teste."""
     monkeypatch.delenv("ADMIN_RELOAD_TOKEN", raising=False)
