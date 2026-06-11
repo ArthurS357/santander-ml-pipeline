@@ -7,7 +7,8 @@ from fastapi import (
     Request,
     status,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+import numpy as np
 import pandas as pd
 import mlflow.sklearn
 import os
@@ -17,7 +18,12 @@ import secrets
 import threading
 import time
 from pathlib import Path
+from typing import Protocol
+from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 # Configuração de Logging para Observabilidade
 logging.basicConfig(
@@ -31,24 +37,83 @@ app = FastAPI(
     description="API para previsão de diabetes com monitoramento em tempo real (Observabilidade)",
 )
 
+# Rate limiting por IP de origem (proteção contra abuso/DoS leve).
+# Limite configurável via env PREDICT_RATE_LIMIT (default "10/minute").
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+PREDICT_RATE_LIMIT = os.getenv("PREDICT_RATE_LIMIT", "10/minute")
+
 # Instrumentação para Prometheus (Métricas de monitoramento em tempo real)
 Instrumentator().instrument(app).expose(app)
+
+# Métricas ML customizadas (registry default → expostas no mesmo /metrics).
+# Permitem monitorar drift de negócio: taxa de positivos e distribuição de
+# confiança das predições, complementando as métricas HTTP do instrumentator.
+PREDICTION_COUNTER = Counter(
+    "diabetes_predictions_total",
+    "Total de predições emitidas, rotuladas por classe.",
+    ["resultado"],
+)
+CONFIDENCE_HISTOGRAM = Histogram(
+    "diabetes_prediction_confidence",
+    "Distribuição da confiança (probabilidade máxima) das predições.",
+    buckets=(0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0),
+)
 
 
 # Passo 2: Definir a estrutura dos dados de entrada
 class PatientData(BaseModel):
-    preg: float
-    plas: float
-    pres: float
-    skin: float
-    test: float
-    mass: float
-    pedi: float
-    age: float
+    """Features clínicas do paciente (dataset Pima Indians Diabetes).
+
+    Validação forte: rejeita campos extras (`extra="forbid"`), exige tipos
+    estritos (`strict=True`) e impõe faixas plausíveis por feature — payloads
+    fora de domínio retornam 422 antes de tocar o modelo.
+
+    NOTA (`strict=True`): envie os valores como **float** no JSON (ex.: `1.0`,
+    não `1`). Inteiros são rejeitados com 422 — comportamento intencional de
+    validação forte.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    preg: float = Field(..., ge=0, le=20, description="Número de gestações")
+    plas: float = Field(..., gt=0, le=250, description="Glicose plasmática (mg/dL)")
+    pres: float = Field(..., gt=0, le=150, description="Pressão diastólica (mm Hg)")
+    skin: float = Field(
+        ..., ge=0, le=100, description="Espessura da dobra cutânea (mm)"
+    )
+    test: float = Field(..., ge=0, le=1000, description="Insulina sérica (mu U/ml)")
+    mass: float = Field(..., gt=0, le=100, description="IMC (kg/m²)")
+    pedi: float = Field(..., ge=0, le=3, description="Pedigree de diabetes (função)")
+    age: float = Field(..., ge=0, le=120, description="Idade (anos)")
+
+
+class PredictorModel(Protocol):
+    """Contrato mínimo (duck typing) que a API exige de um modelo servível.
+
+    Qualquer artefato carregado do MLflow (Pipeline sklearn, wrapper
+    incremental, etc.) deve expor esta interface. `predict_proba` é
+    verificado em runtime via `hasattr` — modelos sem ela degradam
+    para confiança 1.0 no endpoint.
+    """
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray: ...  # noqa: E704
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray: ...  # noqa: E704
+
+
+class PredictionResponse(BaseModel):
+    """Contrato de resposta do POST /predict (documentado no OpenAPI)."""
+
+    predicao: str
+    confianca: float
+    modelo_versao: str
+    latencia_s: float
 
 
 # Passo 3: Carregar o modelo treinado (Lógica Robusta)
-modelo = None
+modelo: PredictorModel | None = None
 modelo_path = ""
 
 
@@ -69,7 +134,7 @@ def _get_model_version_id() -> str:
         return f"run_{Path(modelo_path).parts[-3]}"
 
 
-def load_latest_model() -> object | None:
+def load_latest_model() -> PredictorModel | None:
     global modelo, modelo_path
 
     # --- Estratégia 1: MODEL_URI via variável de ambiente (Produção / Desacoplado) ---
@@ -170,10 +235,11 @@ def log_prediction(
 
 
 # Passo 4: Criar o endpoint de predição
-@app.post("/predict")
+@app.post("/predict", response_model=PredictionResponse)
+@limiter.limit(PREDICT_RATE_LIMIT)
 async def predict(
-    data: PatientData, request: Request, background_tasks: BackgroundTasks
-) -> dict[str, object]:
+    request: Request, data: PatientData, background_tasks: BackgroundTasks
+) -> PredictionResponse:
     start_time = time.time()
 
     if modelo is None:
@@ -203,6 +269,12 @@ async def predict(
         "Positivo para Diabetes" if predicao[0] == 1 else "Negativo para Diabetes"
     )
 
+    # Métricas ML customizadas (Prometheus)
+    PREDICTION_COUNTER.labels(
+        resultado="positivo" if predicao[0] == 1 else "negativo"
+    ).inc()
+    CONFIDENCE_HISTOGRAM.observe(float(probabilidade))
+
     # Log de Saída e Performance (Observabilidade)
     latency = time.time() - start_time
     logger.info(
@@ -217,12 +289,12 @@ async def predict(
         probability=probabilidade,
     )
 
-    return {
-        "predicao": resultado,
-        "confianca": round(probabilidade, 4),
-        "modelo_versao": _get_model_version_id(),
-        "latencia_s": round(latency, 4),
-    }
+    return PredictionResponse(
+        predicao=resultado,
+        confianca=round(float(probabilidade), 4),
+        modelo_versao=_get_model_version_id(),
+        latencia_s=round(latency, 4),
+    )
 
 
 @app.get("/")
