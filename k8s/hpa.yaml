@@ -11,6 +11,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: santander-ml-api-hpa
+  namespace: santander-ml
   labels:
     app: santander-ml-api
     project: santander-ml-pipeline

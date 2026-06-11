@@ -1,0 +1,14 @@
+###############################################################################
+# Namespace — Santander ML Pipeline
+#
+# Todos os manifestos em k8s/ referenciam este namespace.
+# Aplicar PRIMEIRO (antes dos demais recursos):
+#   kubectl apply -f k8s/namespace.yaml
+###############################################################################
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: santander-ml
+  labels:
+    app: santander-ml-api
+    project: santander-ml-pipeline

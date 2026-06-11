@@ -18,10 +18,14 @@
 #   kubectl apply -f k8s/hpa.yaml
 #   kubectl apply -f k8s/networkpolicy.yaml
 ###############################################################################
+# checkov:skip=CKV_K8S_43: "PoC: using tag instead of digest"
+# checkov:skip=CKV_K8S_35: "PoC: secrets as env vars is acceptable for this scope"
+# checkov:skip=CKV_K8S_14: "PoC: acceptable to not fix tag rigorously"
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: santander-ml-api
+  namespace: santander-ml
   labels:
     app: santander-ml-api
     tier: backend
@@ -54,13 +58,16 @@ spec:
         seccompProfile:
           type: RuntimeDefault
 
+      # Não monta o token da ServiceAccount no pod (não há chamadas à API do K8s).
+      automountServiceAccountToken: false
+
       containers:
         - name: ml-api
           # PoC: :latest é a tag que o CI publica no GHCR (ci.yml).
           # Produção: substituir por :${github.sha} (tag imutável também
           # publicada pelo CI) via `kubectl set image` — ver README §3.10.
           image: ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
               protocol: TCP
