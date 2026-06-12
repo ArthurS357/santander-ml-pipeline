@@ -5,6 +5,7 @@ from fastapi import (
     Header,
     HTTPException,
     Request,
+    Response,
     status,
 )
 from pydantic import BaseModel, ConfigDict, Field
@@ -18,7 +19,7 @@ import secrets
 import threading
 import time
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -41,7 +42,20 @@ app = FastAPI(
 # Limite configurável via env PREDICT_RATE_LIMIT (default "10/minute").
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+def _rate_limit_handler(request: Request, exc: Exception) -> Response:
+    """Adaptador de tipo entre o slowapi e o Starlette.
+
+    `add_exception_handler` tipa o handler como `(Request, Exception)`, mas
+    `_rate_limit_exceeded_handler` exige `RateLimitExceeded` (tipo mais
+    estreito) — incompatível por contravariância de parâmetro. Em runtime o
+    Starlette só roteia `RateLimitExceeded` até aqui, então o cast é seguro.
+    """
+    return _rate_limit_exceeded_handler(request, cast(RateLimitExceeded, exc))
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 PREDICT_RATE_LIMIT = os.getenv("PREDICT_RATE_LIMIT", "10/minute")
 
 # Instrumentação para Prometheus (Métricas de monitoramento em tempo real)
