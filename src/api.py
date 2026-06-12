@@ -70,9 +70,10 @@ class PatientData(BaseModel):
     estritos (`strict=True`) e impõe faixas plausíveis por feature — payloads
     fora de domínio retornam 422 antes de tocar o modelo.
 
-    NOTA (`strict=True`): envie os valores como **float** no JSON (ex.: `1.0`,
-    não `1`). Inteiros são rejeitados com 422 — comportamento intencional de
-    validação forte.
+    NOTA (`strict=True`): strings numéricas (ex.: `"85.0"`) são rejeitadas
+    com 422 — não há coerção de tipo. Inteiros JSON (ex.: `85`) são aceitos
+    e convertidos para float, conforme a tabela de conversão do Pydantic v2.
+    Recomenda-se enviar os valores como decimais (ex.: `85.0`).
     """
 
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -119,10 +120,25 @@ modelo_path = ""
 
 def _get_model_version_id() -> str:
     """Retorna um identificador seguro do modelo sem expor caminhos internos do servidor.
-    Extrai o run_id do MLflow a partir da estrutura de diretórios (mlruns/<exp_id>/<run_id>/...).
+
+    Suporta os formatos de MODEL_URI do MLflow e o fallback local:
+    - models:/PimaDiabetesClassifier@champion  (Registry por alias — produção/K8s)
+    - models:/PimaDiabetesClassifier/1         (Registry por versão)
+    - runs:/<run_id>/model                     (run direto)
+    - mlruns/<exp_id>/<run_id>/artifacts/model (caminho local — dev/CI)
     """
     if not modelo_path:
         return "desconhecido"
+
+    if modelo_path.startswith("models:/"):
+        return modelo_path.removeprefix("models:/")
+
+    if modelo_path.startswith("runs:/"):
+        parts = modelo_path.split("/")
+        if len(parts) > 1 and parts[1]:
+            return f"run_{parts[1]}"
+        return "run_desconhecido"
+
     parts = Path(modelo_path).parts
     # Estrutura esperada: mlruns / <experiment_id> / <run_id> / artifacts / model
     try:
@@ -130,8 +146,11 @@ def _get_model_version_id() -> str:
         run_id = parts[mlruns_idx + 2]
         return f"run_{run_id}"
     except (ValueError, IndexError):
-        # Fallback genérico caso a estrutura de diretórios seja diferente
-        return f"run_{Path(modelo_path).parts[-3]}"
+        # Fallback genérico caso a estrutura de diretórios seja diferente.
+        # Guard de tamanho: caminhos curtos não podem indexar parts[-3].
+        if len(parts) >= 3:
+            return f"run_{parts[-3]}"
+        return "modelo_externo"
 
 
 def load_latest_model() -> PredictorModel | None:

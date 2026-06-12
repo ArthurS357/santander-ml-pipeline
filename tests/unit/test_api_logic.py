@@ -138,6 +138,44 @@ class TestGetModelVersionId:
         # /var/models/v1/artifacts/model → parts[-3] = "v1"
         assert api._get_model_version_id() == "run_v1"
 
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            (
+                "models:/PimaDiabetesClassifier@champion",
+                "PimaDiabetesClassifier@champion",
+            ),
+            ("models:/PimaDiabetesClassifier/1", "PimaDiabetesClassifier/1"),
+            ("runs:/abc123/model", "run_abc123"),
+        ],
+        ids=["registry_alias_champion", "registry_version_pin", "runs_uri"],
+    )
+    def test_supports_mlflow_registry_uris(
+        self, monkeypatch: pytest.MonkeyPatch, path: str, expected: str
+    ) -> None:
+        """MODEL_URI de produção (K8s usa models:/...@champion) não pode quebrar."""
+        from src import api
+
+        monkeypatch.setattr(api, "modelo_path", path)
+        assert api._get_model_version_id() == expected
+
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            ("runs:/", "run_desconhecido"),
+            ("modelo.pkl", "modelo_externo"),
+        ],
+        ids=["runs_uri_without_id", "short_path_no_indexerror"],
+    )
+    def test_degenerate_paths_never_raise(
+        self, monkeypatch: pytest.MonkeyPatch, path: str, expected: str
+    ) -> None:
+        """Caminhos curtos não podem propagar IndexError para os endpoints."""
+        from src import api
+
+        monkeypatch.setattr(api, "modelo_path", path)
+        assert api._get_model_version_id() == expected
+
 
 # ---------------------------------------------------------------------------
 # log_prediction — escrita CSV thread-safe
