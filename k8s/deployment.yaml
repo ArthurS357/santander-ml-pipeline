@@ -12,7 +12,8 @@
 #   - emptyDir para /tmp e /app/data/logs (única gravação em runtime)
 #
 # Dependências (aplicar antes):
-#   kubectl apply -f k8s/configmap-secret.yaml
+#   kubectl apply -f k8s/configmap.yaml
+#   (Secret: criar via `kubectl create secret` — ver k8s/secret.example.yaml)
 #   kubectl apply -f k8s/deployment.yaml
 #   kubectl apply -f k8s/service.yaml
 #   kubectl apply -f k8s/hpa.yaml

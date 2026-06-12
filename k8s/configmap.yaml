@@ -1,0 +1,37 @@
+###############################################################################
+# ConfigMap — Santander ML Pipeline
+#
+# Variáveis NÃO sensíveis (configuração de aplicação). Seguro para aplicar
+# diretamente em qualquer ambiente:
+#
+#   kubectl apply -f k8s/configmap.yaml
+#
+# Segredos NÃO vivem aqui — ver k8s/secret.example.yaml (placeholder) e o
+# comando `kubectl create secret` documentado no README (seção 3.10).
+###############################################################################
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: santander-ml-config
+  namespace: santander-ml
+  labels:
+    app: santander-ml-api
+    project: santander-ml-pipeline
+data:
+  # MLflow Tracking Server
+  MLFLOW_TRACKING_URI: "http://mlflow-service:5000"
+
+  # URI do modelo registrado no MLflow Registry.
+  # Nome único e estável: PimaDiabetesClassifier (algoritmo vencedor fica como param do run).
+  # Alias @champion = modelo aprovado para produção (governança do train.py):
+  # promover um modelo é mover o alias no Registry — sem redeploy.
+  MODEL_URI: "models:/PimaDiabetesClassifier@champion"
+
+  # Caminho dos dados processados (referência para Data Drift Report)
+  PROCESSED_DATA_FILE: "data/processed/pima_diabetes_processed.csv"
+
+  # Caminho do log de inferências (gravado pela API, lido pelo Report)
+  INFERENCE_LOG_FILE: "data/logs/inference_logs.csv"
+
+  # Threshold de drift para disparo de alertas (0.0 – 1.0)
+  DRIFT_THRESHOLD: "0.5"
