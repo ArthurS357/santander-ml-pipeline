@@ -22,7 +22,7 @@
 
 ---
 
-## 🚀 Novas Funcionalidades (v2.0)
+## 🚀 Novas Funcionalidades (v1.0.1)
 
 - **Modo Big Data Automático:** Transição de Pandas para Dask + SGDClassifier com `partial_fit` para arquivos > 500MB.
 - **Observabilidade Ativa:** Inference Logging em CSV + métricas Prometheus (`/metrics`), incluindo métricas ML customizadas (`diabetes_predictions_total`, `diabetes_prediction_confidence`). **Data Drift próprio via PSI** (Population Stability Index) — implementação leve sem Evidently, gera relatório JSON/MD.
@@ -33,7 +33,7 @@
 
 ## Sumário
 
-- [🚀 Novas Funcionalidades (v2.0)](#-novas-funcionalidades-v20)
+- [🚀 Novas Funcionalidades (v1.0.1)](#-novas-funcionalidades-v101)
 - [I. Objetivo do Case](#-i-objetivo-do-case)
 - [II. Arquitetura de Solução](#-ii-arquitetura-de-solução)
 - [III. Plano de Implementação e Reprodução](#-iii-plano-de-implementação-e-reprodução)
@@ -93,8 +93,8 @@ flowchart TD
         H -->|BackgroundTasks| IL["📝 Inference Logging\ndata/logs/inference_logs.csv"]
     end
 
-    IL -.->|Roadmap| RPT["📊 generate_report.py\nEvidently Data Drift\n(desabilitado nesta versão)"]
-    D -.->|Roadmap| RPT
+    IL -->|Logs de inferência| RPT["📊 generate_report.py\nData Drift via PSI\n(relatório JSON + Markdown)"]
+    D -->|Referência de treino| RPT
 
     H -->|POST /predict| I([👤 Cliente REST])
     H -->|GET /metrics| J([📊 Prometheus\n:9090])
@@ -140,7 +140,7 @@ graph LR
     subgraph OBS ["Observabilidade"]
         PROM["Prometheus\n(scrape /metrics)"]
         LOG["Logging Estruturado\n(nível INFO por requisição)"]
-        DRIFT["Evidently AI\n(Data Drift — roadmap)"]
+        DRIFT["Data Drift próprio\n(PSI — JSON/Markdown)"]
     end
 
     API --> OBS
@@ -171,7 +171,7 @@ santander-ml-pipeline/
 │   ├── data_ingestion.py     # Etapa 1 — Ingestão multi-formato: CSV, Excel (.xlsx/.xls) e Parquet
 │   ├── preprocessing.py      # Etapa 2 — Limpeza e imputação por mediana
 │   ├── train.py              # Etapa 3 — Treino multi-modelo + MLflow + SQLite
-│   ├── generate_report.py    # Etapa 4 — Data Drift Report (Evidently AI, desabilitado na branch atual)
+│   ├── generate_report.py    # Etapa 4 — Data Drift Report próprio via PSI (JSON + Markdown)
 │   ├── pipeline_manager.py   # Orquestrador: DAG sequencial + scheduler + reporting
 │   ├── api.py                # FastAPI: /predict · /metrics · /health/* · /admin/reload_model + Inference Logging
 │   └── test_api.py           # Testes automatizados com pytest
@@ -179,7 +179,7 @@ santander-ml-pipeline/
 │   ├── deployment.yaml       # Deployment: 3 réplicas + probes + ConfigMap/Secret refs
 │   ├── service.yaml          # Service: LoadBalancer :80 → :8000
 │   ├── hpa.yaml              # HPA: autoscaling CPU 70% / Mem 80% (3–10 réplicas)
-│   └── configmap-secret.yaml # ConfigMap + Secret Opaque (DATABASE_URL base64)
+│   └── configmap-secret.yaml # ConfigMap + Secret Opaque com placeholders via stringData
 ├── observability/
 │   ├── prometheus.yml        # Scrape config: 5s interval → FastAPI /metrics
 │   └── README.md             # Queries PromQL (erro 5xx, P95 latência, throughput)
@@ -205,7 +205,7 @@ santander-ml-pipeline/
 
 > **Atenção:** Os pacotes em `requirements.txt` exigem Python ≥ 3.14. O Dockerfile e o workflow de CI/CD estão configurados com Python 3.14.
 >
-> **Nota Python 3.14:** O pipeline foi testado e é compatível com Python 3.14, com uma única exceção: o pacote **Evidently** foi desabilitado por incompatibilidade com `pydantic.v1` nessa versão. Todas as demais funcionalidades (ingestão, pré-processamento, treinamento, API, MLflow) operam normalmente.
+> **Nota Python 3.14:** O pipeline foi testado e é compatível com Python 3.14. A versão atual implementa monitoramento próprio de Data Drift via PSI (Population Stability Index), com relatório em JSON e Markdown, sem dependência do Evidently. Todas as funcionalidades (ingestão, pré-processamento, treinamento, API, MLflow, drift) operam normalmente.
 
 ---
 
@@ -611,6 +611,8 @@ kubectl apply -f k8s/service.yaml
 kubectl apply -f k8s/hpa.yaml
 ```
 
+> **Nota técnica:** Nesta PoC, o CD publica a imagem e simula o deploy. Em produção corporativa, a etapa final seria Kubernetes nativo via Helm ou Argo CD (GitOps).
+
 #### Tag de imagem: PoC vs Produção
 
 | Ambiente | Tag | Por quê |
@@ -853,15 +855,15 @@ python src/pipeline_manager.py
 | **Excel (.xlsx / .xls)** | ✅ Sim          | Defina `RAW_DATA_URL=data/raw/pima_diabetes.xlsx`. Requer `openpyxl` (já no `requirements.txt`).   |
 | **Parquet**              | ✅ Sim          | Defina `RAW_DATA_URL=data/raw/pima_diabetes.parquet`. Requer `pyarrow` (já no `requirements.txt`). |
 
-A detecção de formato é automática em `data_ingestion.py` via `os.path.splitext()`. O resultado é sempre salvo como `data/raw/pima_diabetes.csv` para compatibilidade com as etapas seguintes do pipeline.
+A detecção de formato é automática em `data_ingestion.py` via `pathlib.Path.suffix`. O resultado é sempre salvo como `data/raw/pima_diabetes.csv` para compatibilidade com as etapas seguintes do pipeline.
 
 ### 📤 Saída de Relatórios
 
-#### 1. Relatório de Data Drift (Evidently)
+#### 1. Relatório de Data Drift (PSI próprio)
 
-- **Status atual:** **Desabilitado** (retorna `None`) devido à incompatibilidade com Python 3.14.
-- **Formato original (se ativo):** HTML interativo (`reports/data_drift_report_YYYYMMDD.html`).
-- **Offline:** Funcionaria offline, pois o Evidently gera o HTML localmente.
+- **Status atual:** A versão atual implementa monitoramento próprio de Data Drift via PSI (Population Stability Index), com relatório em JSON e Markdown, sem dependência do Evidently.
+- **Formato:** `reports/drift_report_YYYYMMDD_HHMMSS.json` + `.md`.
+- **Offline:** ✅ Totalmente funcional — o relatório é gerado localmente (numpy/pandas), sem chamadas externas.
 
 #### 2. Métricas e Logs de Inferência
 
