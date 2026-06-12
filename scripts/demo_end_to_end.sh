@@ -15,6 +15,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PYTHONPATH=.
 
+echo "==> 0/8  Preparando dataset (download se ausente — mesma fonte do CI)"
+mkdir -p data/raw
+if [ ! -f data/raw/pima_diabetes.csv ]; then
+  echo "Dataset não encontrado. Baixando do mirror público UCI..."
+  curl -fsSL \
+    "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv" \
+    -o data/raw/pima_diabetes.csv
+  # Prepend do cabeçalho — o arquivo público vem sem nomes de colunas
+  echo "preg,plas,pres,skin,test,mass,pedi,age,class" \
+    | cat - data/raw/pima_diabetes.csv > data/raw/pima_with_header.tmp
+  mv data/raw/pima_with_header.tmp data/raw/pima_diabetes.csv
+  echo "Dataset baixado: $(wc -l < data/raw/pima_diabetes.csv) linhas"
+fi
+
 echo "==> 1/8  Instalando dependências"
 pip install -r requirements.txt -r requirements-dev.txt
 

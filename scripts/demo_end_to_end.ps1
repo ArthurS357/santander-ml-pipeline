@@ -14,6 +14,21 @@ $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 $env:PYTHONPATH = "."
 
+Write-Host "==> 0/8  Preparando dataset (download se ausente - mesma fonte do CI)"
+New-Item -ItemType Directory -Force -Path "data\raw" | Out-Null
+if (-not (Test-Path "data\raw\pima_diabetes.csv")) {
+    Write-Host "Dataset nao encontrado. Baixando do mirror publico UCI..."
+    Invoke-WebRequest `
+        -Uri "https://raw.githubusercontent.com/jbrownlee/Datasets/master/pima-indians-diabetes.data.csv" `
+        -OutFile "data\raw\pima_diabetes_raw.tmp"
+    # Prepend do cabecalho - o arquivo publico vem sem nomes de colunas
+    $header = "preg,plas,pres,skin,test,mass,pedi,age,class"
+    $body = Get-Content "data\raw\pima_diabetes_raw.tmp"
+    @($header) + $body | Set-Content "data\raw\pima_diabetes.csv" -Encoding utf8
+    Remove-Item "data\raw\pima_diabetes_raw.tmp" -Force
+    Write-Host "Dataset baixado: $((Get-Content 'data\raw\pima_diabetes.csv').Count) linhas"
+}
+
 Write-Host "==> 1/8  Instalando dependencias"
 pip install -r requirements.txt -r requirements-dev.txt
 
