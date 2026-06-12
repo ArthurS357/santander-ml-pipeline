@@ -220,9 +220,10 @@ def log_prediction(
         "probability": round(probability, 6),
     }
 
-    write_header = not log_path.exists() or log_path.stat().st_size == 0
-
     with _log_lock:
+        # Verificação do header dentro do lock: evita corrida em que duas
+        # threads veem o arquivo vazio e ambas escrevem o cabeçalho.
+        write_header = not log_path.exists() or log_path.stat().st_size == 0
         with log_path.open("a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=LOG_FIELDNAMES)
             if write_header:
@@ -237,9 +238,11 @@ def log_prediction(
 # Passo 4: Criar o endpoint de predição
 @app.post("/predict", response_model=PredictionResponse)
 @limiter.limit(PREDICT_RATE_LIMIT)
-async def predict(
+def predict(
     request: Request, data: PatientData, background_tasks: BackgroundTasks
 ) -> PredictionResponse:
+    # Rota síncrona de propósito: o modelo sklearn é CPU-bound e bloqueante;
+    # `def` faz o FastAPI executá-la no threadpool, sem travar o event loop.
     start_time = time.time()
 
     if modelo is None:
