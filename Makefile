@@ -17,8 +17,8 @@ install: ## Instala dependências de produção e desenvolvimento
 	$(PYTHON) -m pip install --upgrade pip
 	pip install -r requirements.txt -r requirements-dev.txt
 
-test: ## Roda a suíte completa com cobertura (gate 80%)
-	pytest -v --cov=src --cov-report=term-missing --cov-fail-under=80
+test: ## Roda a suíte completa com cobertura (gate 85% — alinhado ao CI)
+	pytest -v --cov=src --cov-report=term-missing --cov-fail-under=85
 
 lint: ## Formatação (black) + linting (flake8)
 	black --check --diff src/

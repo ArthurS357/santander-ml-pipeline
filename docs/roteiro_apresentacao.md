@@ -84,7 +84,7 @@ make drift
 
 - Abrir `.github/workflows/ci.yml`: Security Gate (black, flake8, bandit),
   **DevSecOps** (gitleaks, pip-audit, checkov, trivy), testes com
-  `--cov-fail-under=80`, build + push GHCR.
+  `--cov-fail-under=85`, build + push GHCR.
 - Mostrar `k8s/` (Deployment, HPA, probes separadas).
 - (Opcional) teste de carga: ver [`docs/performance.md`](performance.md).
 
