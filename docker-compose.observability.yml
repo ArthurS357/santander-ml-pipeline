@@ -46,7 +46,8 @@ services:
       # Liveness: 200 enquanto o processo responde. Para esta stack de
       # observabilidade queremos coletar /metrics mesmo antes do modelo
       # carregar, então NÃO usar /health/ready (503 sem modelo) aqui.
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      # Python puro (urllib) porque a imagem slim não inclui curl.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live', timeout=5)"]
       interval: 10s
       timeout: 5s
       retries: 3
