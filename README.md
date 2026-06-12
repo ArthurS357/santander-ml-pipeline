@@ -179,7 +179,8 @@ santander-ml-pipeline/
 │   ├── deployment.yaml       # Deployment: 3 réplicas + probes + ConfigMap/Secret refs
 │   ├── service.yaml          # Service: LoadBalancer :80 → :8000
 │   ├── hpa.yaml              # HPA: autoscaling CPU 70% / Mem 80% (3–10 réplicas)
-│   └── configmap-secret.yaml # ConfigMap + Secret Opaque com placeholders via stringData
+│   ├── configmap.yaml        # ConfigMap: variáveis não sensíveis (MODEL_URI, etc.)
+│   └── secret.example.yaml   # Secret Opaque de EXEMPLO (placeholders via stringData — não aplicar em prod)
 ├── observability/
 │   ├── prometheus.yml        # Scrape config: 5s interval → FastAPI /metrics
 │   └── README.md             # Queries PromQL (erro 5xx, P95 latência, throughput)
@@ -541,9 +542,21 @@ Os testes de integração usam `tmp_path` + `monkeypatch` para apontar `DATABASE
 # Build da imagem (lowercase obrigatório para GHCR)
 docker build -t ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:latest .
 
-# Execução do container
+# Execução do container — desenvolvimento local (modelo via volume mlruns/)
+# Requer o pipeline executado antes (make pipeline) para existir um modelo.
 docker run -d -p 8000:8000 --name diabetes-api \
+  -v "$PWD/mlruns:/app/mlruns:ro" \
+  -v "$PWD/data/logs:/app/data/logs" \
   ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:latest
+
+# Execução do container — produção (modelo via MLflow Registry)
+docker run -d -p 8000:8000 --name diabetes-api \
+  -e MLFLOW_TRACKING_URI="http://mlflow-service:5000" \
+  -e MODEL_URI="models:/PimaDiabetesClassifier@champion" \
+  ghcr.io/arthurs357/santander-ml-pipeline/pima-diabetes-api:latest
+
+# Sem volume nem MODEL_URI o container sobe, mas /health/ready e /predict
+# retornam 503 (sem modelo) — comportamento fail-secure intencional.
 
 # Verificar logs
 docker logs diabetes-api
@@ -580,7 +593,7 @@ Push/PR → main
     │     ├─ pip-audit -r requirements.txt   ← CVEs em dependências (informativo)
     │     └─ checkov -d k8s/                  ← SAST de IaC/Kubernetes (informativo)
     ├─ 4. python src/pipeline_manager.py     ← executa o DAG completo
-    ├─ 5. pytest -v --cov=src --cov-fail-under=80   ← suíte + gate de cobertura 80%
+    ├─ 5. pytest -v --cov=src --cov-fail-under=85   ← suíte + gate de cobertura 85%
     ├─ 6. docker build (:latest + :sha) + 🐳 trivy   ← scan da imagem (CRITICAL/HIGH, bloqueante)
     ├─ 7. docker push GHCR                    ← publicação da imagem
     └─ 8. Deploy (Staging simulation)
@@ -591,7 +604,7 @@ Push/PR → main
 > - **black/flake8/bandit** — formatação, lint e SAST de código (bloqueantes).
 > - **pip-audit/checkov** — CVEs de dependências e IaC (informativos na PoC via `continue-on-error`; vire bloqueantes em produção removendo essa flag).
 > - **trivy** — scan da imagem Docker por CVEs CRITICAL/HIGH (bloqueante, no push para `main`).
-> - **`--cov-fail-under=80`** — o CI falha se a cobertura cair abaixo de 80%.
+> - **`--cov-fail-under=85`** — o CI falha se a cobertura cair abaixo de 85%.
 
 ---
 
@@ -599,13 +612,14 @@ Push/PR → main
 
 ```bash
 # 1. Crie o Secret FORA do Git (não aplique placeholders em produção).
-#    O bloco Secret em configmap-secret.yaml contém apenas PLACEHOLDERS.
+#    k8s/secret.example.yaml contém apenas PLACEHOLDERS para documentação.
 kubectl create secret generic santander-ml-secrets \
+  --namespace santander-ml \
   --from-literal=DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/DBNAME' \
   --from-literal=ADMIN_RELOAD_TOKEN="$(openssl rand -base64 32)"
 
 # 2. ConfigMap (não sensível) + carga da aplicação
-kubectl apply -f k8s/configmap-secret.yaml   # aplica apenas o ConfigMap em produção
+kubectl apply -f k8s/configmap.yaml          # somente variáveis não sensíveis
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 kubectl apply -f k8s/hpa.yaml
@@ -650,7 +664,7 @@ Onde demonstrar cada requisito do case e o comando/evidência correspondente:
 | **Seleção por métrica de negócio** | `MODEL_SELECTION_METRIC` | `MODEL_SELECTION_METRIC=recall make pipeline` |
 | **Gerenciamento de Artefatos** | MLflow Registry + snapshots | Alias `@champion`, signature, tabela `training_dataset_snapshots` |
 | **Governança** | [Model Card](docs/model_card.md) · [Data Card](docs/data_card.md) | `dataset_sha256` liga dado→modelo |
-| **CI/CD + DevSecOps** | `.github/workflows/ci.yml` | gitleaks · bandit · pip-audit · checkov · trivy · `--cov-fail-under=80` |
+| **CI/CD + DevSecOps** | `.github/workflows/ci.yml` | gitleaks · bandit · pip-audit · checkov · trivy · `--cov-fail-under=85` |
 | **Orquestração** | `src/pipeline_manager.py` | `python src/pipeline_manager.py --demo` (scheduler) |
 | **API + Validação forte** | `src/api.py` (`PatientData`) | `make api` → Swagger `/docs`; payload fora de faixa → 422 |
 | **Rate limiting** | `src/api.py` (slowapi) | repetir `POST /predict` > 10×/min → 429 |
@@ -680,7 +694,7 @@ Onde demonstrar cada requisito do case e o comando/evidência correspondente:
 | Imputação por mediana                                | **Sem data leakage:** `SimpleImputer` vive dentro do `sklearn.Pipeline`, ajustado **só no treino** (`X_train`) | Já resolvido; manter o imputer no pipeline ao evoluir features |
 | Modelo embarcado na imagem Docker                    | Simplifica o PoC                                                                | Montar `mlruns/` como volume ou carregar do Registry por URI (`models:/...@champion`)                                  |
 | **Data Drift via PSI próprio (sem Evidently)**       | Evidently incompatível com Python 3.14; `generate_data_drift_report()` usa PSI implementado à mão (numpy) | PSI cobre o caso de uso; reintroduzir Evidently para relatórios HTML ricos quando houver release compatível |
-| Validação `strict=True` exige floats no JSON         | Validação forte: `"plas": 85.0` aceito, `"plas": 85` → 422                      | Comportamento intencional; clientes devem enviar floats (documentado no Swagger e no roteiro) |
+| Validação `strict=True` sem coerção de strings       | Strings numéricas (`"plas": "85.0"`) → 422; inteiros JSON (`"plas": 85`) são aceitos e convertidos para float (tabela de conversão do Pydantic v2) | Comportamento intencional; recomenda-se enviar decimais (documentado no Swagger e no roteiro) |
 
 ### 4.2 Implementado vs. Roadmap
 
@@ -707,7 +721,7 @@ Onde demonstrar cada requisito do case e o comando/evidência correspondente:
 ├── Modo Big Data: IncrementalDiabetesModel (imputer+SGD) com holdout dedicado
 ├── Script de demo end-to-end (scripts/demo_end_to_end.sh|.ps1) + Makefile
 ├── Rate limiting por IP no /predict (slowapi, 10/min, resposta 429)
-├── DevSecOps no CI: gitleaks + pip-audit + checkov + trivy + cov-fail-under=80
+├── DevSecOps no CI: gitleaks + pip-audit + checkov + trivy + cov-fail-under=85
 ├── Governança documental: Model Card, Data Card e 5 ADRs (docs/)
 ├── Teste de carga (Locust) + relatório de performance (docs/performance.md)
 └── Cobertura de testes 94% (gate de 80% ativo no CI)
