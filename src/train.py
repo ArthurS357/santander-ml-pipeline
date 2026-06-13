@@ -258,12 +258,10 @@ class IncrementalDiabetesModel:
     classifier: SGDClassifier
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return cast(np.ndarray, self.classifier.predict(self.imputer.transform(X)))
+        return self.classifier.predict(self.imputer.transform(X))
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        return cast(
-            np.ndarray, self.classifier.predict_proba(self.imputer.transform(X))
-        )
+        return self.classifier.predict_proba(self.imputer.transform(X))
 
 
 def _log_model_with_signature(
@@ -553,6 +551,8 @@ def train_model(data_path: str | Path) -> None:
         return
 
     if use_dask_mode(str(data_p)):
+        # Big Data no treino = chunks pandas + SGDClassifier.partial_fit, NÃO Dask.
+        # (Dask atua só na camada de dados: ingestão/pré-processamento.)
         logger.info("Modo Big Data detectado — usando treinamento incremental (SGD).")
         _train_incremental(data_p)
     else:

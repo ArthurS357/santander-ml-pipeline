@@ -27,7 +27,11 @@ _DEFAULT_PROCESSED = Path("data/processed/pima_diabetes_processed.csv")
 class MLPipelineOrchestrator:
     """Orquestrador de Pipeline de ML (Simulação de DAG).
 
-    Fluxo: Ingestão → Pré-processamento → Treinamento → Monitoramento → Reporting.
+    `run_pipeline` executa o DAG de treino: Ingestão → Pré-processamento →
+    Treinamento. O Reporting (Data Drift) NÃO faz parte de `run_pipeline`: é
+    disparado pelo scheduler (`schedule_pipeline`) ou sob demanda via
+    `run_reporting` (`make drift`), pois depende de logs de inferência
+    acumulados em produção.
     """
 
     def __init__(self) -> None:

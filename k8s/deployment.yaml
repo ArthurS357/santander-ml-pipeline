@@ -93,7 +93,9 @@ spec:
           # Variáveis de ambiente — injetadas via ConfigMap e Secret
           # ---------------------------------------------------------------
 
-          # Bulk inject: todas as chaves do ConfigMap viram env vars
+          # Bulk inject: todas as chaves do ConfigMap viram env vars.
+          # MODEL_URI (models:/PimaDiabetesClassifier@champion) chega por aqui —
+          # definido em k8s/configmap.yaml, não duplicado neste manifesto.
           envFrom:
             - configMapRef:
                 name: santander-ml-config
