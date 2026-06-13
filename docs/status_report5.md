@@ -219,9 +219,11 @@ Nenhum risco residual introduzido por esta sessão.
 
 ### Na documentação externa (roteiro/PPTX — fora deste repositório)
 
-1. **GAP-04 — campos `/predict`:** substituir `prediction`/`probability` por `predicao`/`confianca`/`modelo_versao`/`latencia_s` nos slides e no roteiro que demonstram a resposta do endpoint.
-2. **GAP-03 — localização de `MODEL_URI`:** ao mostrar a variável ao vivo, abrir `k8s/configmap.yaml` (linha 28) e explicar que ela chega ao pod via `envFrom: configMapRef`. Não apontar o `deployment.yaml` como origem do valor.
-3. **GAP-02 — descrição "Dask + SGDClassifier":** corrigir nos slides para "Dask na camada de dados (ingestão/pré-processamento) | treino incremental por chunks pandas + `SGDClassifier.partial_fit`".
+> **Atualização 2026-06-13:** todos os itens abaixo foram concluídos em sessão separada — ver Seção 12 para detalhes.
+
+1. ✅ **GAP-04 — campos `/predict`:** substituir `prediction`/`probability` por `predicao`/`confianca`/`modelo_versao`/`latencia_s` nos slides e no roteiro que demonstram a resposta do endpoint.
+2. ✅ **GAP-03 — localização de `MODEL_URI`:** ao mostrar a variável ao vivo, abrir `k8s/configmap.yaml` (linha 28) e explicar que ela chega ao pod via `envFrom: configMapRef`. Não apontar o `deployment.yaml` como origem do valor.
+3. ✅ **GAP-02 — descrição "Dask + SGDClassifier":** corrigir nos slides para "Dask na camada de dados (ingestão/pré-processamento) | treino incremental por chunks pandas + `SGDClassifier.partial_fit`".
 
 ---
 
@@ -241,7 +243,7 @@ src/train.py            |  8 ++++----   (comentário switch + remoção cast red
 
 | Hash | Tipo | Escopo | Descrição |
 |---|---|---|---|
-| *(este commit)* | `docs` | `audit` | Fix doc×code gaps GAP-01–03; remove redundant ndarray casts; add status_report5 |
+| `d291879` | `docs` | `audit` | Fix doc×code gaps GAP-01–03; remove redundant ndarray casts; add status_report5 |
 
 ---
 
@@ -254,3 +256,78 @@ src/train.py            |  8 ++++----   (comentário switch + remoção cast red
 | **Manifesto Kubernetes** | Zero — YAML válido; `envFrom` inalterado |
 | **Cobertura de testes** | 94,53% (gate 85% ✓) — nenhum teste adicionado ou removido |
 | **Risco de regressão** | Nulo — 128 testes aprovados; zero falha |
+
+---
+
+## 12. Atualização — Itens de Documentação Concluídos (2026-06-13)
+
+Os três itens listados na Seção 8 foram aplicados em sessão separada nos arquivos `santander_ml_case_v1_0_3.pptx` e `roteiro_talk_and_show_santander_ml_case_v1_0_3.docx` (externos a este repositório). Detalhes abaixo.
+
+### 12.1 GAP-02 — PPTX, Slide 4 "Treinamento do Modelo"
+
+Bullet "Modo Big Data" reescrita:
+
+```
+Antes:
+  Modo Big Data: Dask + SGDClassifier com partial_fit para arquivos > 500 MB.
+
+Depois:
+  Modo Big Data (> 500 MB): Dask na ingestão/pré-processamento;
+  treino incremental via chunks pandas + SGDClassifier.partial_fit.
+```
+
+### 12.2 GAP-02 — Roteiro, Slide 4
+
+Adições na seção "Talk and show — o que mostrar junto com o slide":
+
+- Nova bullet orientando esclarecer que `use_dask_mode` (`src/config.py`, limiar 500 MB) é utilizado em `src/data_ingestion.py` e `src/preprocessing.py` (Dask = camada de dados), enquanto `_train_incremental` (`src/train.py`) não usa Dask — processa em chunks via `pandas.read_csv(chunksize=...)` + `SGDClassifier.partial_fit`.
+- Novo trecho no bloco "Comando ou trecho para mostrar":
+
+```bash
+grep -n "use_dask_mode|_train_incremental|partial_fit" src/config.py src/train.py
+```
+
+### 12.3 GAP-03 — Roteiro, Slide 9 "Deploy Cloud-Native"
+
+Bullet de abertura do "Talk and show" alterada:
+
+```
+Antes:
+  Abrir k8s/deployment.yaml e destacar MODEL_URI.
+
+Depois:
+  1. Abrir k8s/configmap.yaml → MODEL_URI: models:/PimaDiabetesClassifier@champion.
+  2. Abrir k8s/deployment.yaml → envFrom: configMapRef: name: santander-ml-config.
+  Deixar explícito que o valor não é duplicado no manifesto de deployment.
+```
+
+Bloco "Comando ou trecho para mostrar" atualizado para incluir `code k8s/configmap.yaml` antes de `code k8s/deployment.yaml`. Apêndice A (sequência de janelas/abas do VS Code) atualizado para incluir `k8s/configmap.yaml`.
+
+### 12.4 GAP-04 — Roteiro, Slides 6 e 11
+
+**Slide 6, "Evidência de sucesso para verbalizar":**
+
+```
+Antes:
+  /predict deve retornar classe prevista, probabilidade e versão do modelo.
+
+Depois:
+  /predict deve retornar JSON com `predicao`, `confianca`, `modelo_versao`
+  e `latencia_s`.
+```
+
+**Slide 11, "Talk and show":**
+
+```
+Antes:
+  destaque `prediction`, `probability` e `modelo_versao`
+
+Depois:
+  destaque `predicao`, `confianca`, `modelo_versao` e `latencia_s`
+```
+
+Os nomes agora correspondem ao contrato real de `PredictionResponse` em `src/api.py:121`.
+
+### 12.5 Validação nos Documentos
+
+Edição realizada via unpack/edit XML/pack (python-docx / python-pptx). QA visual por render para imagem confirmou ausência de overflow, corte ou sobreposição nos trechos alterados em ambos os documentos.
