@@ -22,7 +22,7 @@
 
 ---
 
-## 🚀 Novas Funcionalidades (v1.0.3)
+## 🚀 Novas Funcionalidades (v1.0.4)
 
 - **Modo Big Data Automático:** Transição de Pandas para Dask + SGDClassifier com `partial_fit` para arquivos > 500MB.
 - **Observabilidade Ativa:** Inference Logging em CSV + métricas Prometheus (`/metrics`), incluindo métricas ML customizadas (`diabetes_predictions_total`, `diabetes_prediction_confidence`). **Data Drift próprio via PSI** (Population Stability Index) — implementação leve sem Evidently, gera relatório JSON/MD.
@@ -33,7 +33,7 @@
 
 ## Sumário
 
-- [🚀 Novas Funcionalidades (v1.0.3)](#-novas-funcionalidades-v103)
+- [🚀 Novas Funcionalidades (v1.0.4)](#-novas-funcionalidades-v104)
 - [I. Objetivo do Case](#-i-objetivo-do-case)
 - [II. Arquitetura de Solução](#-ii-arquitetura-de-solução)
 - [III. Plano de Implementação e Reprodução](#-iii-plano-de-implementação-e-reprodução)
