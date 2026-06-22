@@ -281,8 +281,15 @@ def _log_model_with_signature(
     # (PatientData usa floats), garantindo enforcement de schema consistente.
     X_sample = X_sample.astype("float64")
     signature = infer_signature(X_sample, y_pred_sample)
+    # serialization_format fixo em cloudpickle (default histórico do MLflow): a
+    # partir de mlflow>=3.11 o flavor sklearn passou a usar skops por padrão,
+    # cuja checagem de tipos rejeita numpy.dtype e quebra o log_model no CI.
     return mlflow.sklearn.log_model(
-        model, "model", signature=signature, input_example=X_sample
+        model,
+        "model",
+        signature=signature,
+        input_example=X_sample,
+        serialization_format="cloudpickle",
     )
 
 
