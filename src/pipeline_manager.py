@@ -24,6 +24,7 @@ _DEFAULT_RAW = Path("data/raw/pima_diabetes.csv")
 _DEFAULT_PROCESSED = Path("data/processed/pima_diabetes_processed.csv")
 
 
+# [TALK & SHOW: Slide 3] Orquestrador do DAG — coração da arquitetura end-to-end
 class MLPipelineOrchestrator:
     """Orquestrador de Pipeline de ML (Simulação de DAG).
 
@@ -42,6 +43,7 @@ class MLPipelineOrchestrator:
             os.getenv("PROCESSED_DATA_FILE", str(_DEFAULT_PROCESSED))
         )
 
+    # [TALK & SHOW: Slide 3] Etapa 1 do fluxo: ingestão de dados
     def run_ingestion(self) -> bool:
         logger.info("Etapa 1: Iniciando Ingestão de Dados...")
         # `load_and_save_data` já trata local-vs-remoto via extensão/URL — não há
@@ -59,6 +61,7 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro na Ingestão: {e}")
             return False
 
+    # [TALK & SHOW: Slide 3] Etapa 2 do fluxo: pré-processamento / imputação
     def run_preprocessing(self) -> bool:
         logger.info("Etapa 2: Iniciando Pré-processamento...")
         try:
@@ -69,6 +72,7 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro no Pré-processamento: {e}")
             return False
 
+    # [TALK & SHOW: Slide 3] Etapa 3 do fluxo: treino multi-modelo + registro
     def run_training(self) -> bool:
         logger.info("Etapa 3: Iniciando Treinamento e Comparação de Modelos...")
         try:
@@ -79,6 +83,7 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro no Treinamento: {e}")
             return False
 
+    # [TALK & SHOW: Slide 3] Etapa 4 (sob demanda): Data Drift Report
     def run_reporting(self) -> str | None:
         """Etapa 4: Gera o relatório de Data Drift (Big Data Report).
 
@@ -100,6 +105,7 @@ class MLPipelineOrchestrator:
             logger.error(f"Erro ao gerar Big Data Report: {e}")
             return None
 
+    # [TALK & SHOW: Slide 3] run_pipeline: dispara o DAG sequencial completo
     def run_pipeline(self) -> bool:
         """Executa o pipeline completo (DAG sequencial)."""
         logger.info("=== Iniciando execução do Pipeline de ML ===")

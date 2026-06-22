@@ -47,6 +47,7 @@ Base = declarative_base()
 # Métricas suportadas como critério de seleção do melhor modelo.
 # A escolha é configurável via env var MODEL_SELECTION_METRIC (default: f1_score),
 # permitindo priorizar métricas de negócio (recall em saúde, precision em fraude, etc.).
+# [TALK & SHOW: Slide 4] Métricas de seleção suportadas (governança da escolha de modelo)
 SUPPORTED_SELECTION_METRICS = frozenset(
     {
         "accuracy",
@@ -57,11 +58,12 @@ SUPPORTED_SELECTION_METRICS = frozenset(
         "roc_auc",
     }
 )
+# [TALK & SHOW: Slide 4] Default f1_score — defensável em saúde / classes desbalanceadas
 DEFAULT_SELECTION_METRIC = "f1_score"
 
-# Nome único e estável no MLflow Model Registry.
+# [TALK & SHOW: Slide 5] Nome único e estável no MLflow Model Registry.
 REGISTRY_NAME = "PimaDiabetesClassifier"
-# Alias que aponta para o modelo aprovado para produção (governança).
+# [TALK & SHOW: Slide 4/5] Alias @champion = modelo aprovado para produção (governança).
 CHAMPION_ALIAS = "champion"
 
 
@@ -76,6 +78,7 @@ class TrainingRecord(Base):
     model_uri = Column(String)
 
 
+# [TALK & SHOW: Slide 5] Snapshot do dataset → rastreabilidade dado→run→modelo
 class DatasetSnapshotRecord(Base):
     """Snapshot lógico do dataset usado em um run de treinamento.
 
@@ -116,6 +119,7 @@ class DatasetSnapshot:
         return json.dumps(dict(self.schema), sort_keys=True)
 
 
+# [TALK & SHOW: Slide 5] Hash SHA-256 do arquivo físico, lido em chunks (memória constante)
 def _calculate_sha256(path: Path, chunk_size: int = 1024 * 1024) -> str:
     """Calcula o hash SHA-256 de um arquivo em chunks (memória constante)."""
     digest = hashlib.sha256()
@@ -264,6 +268,7 @@ class IncrementalDiabetesModel:
         return self.classifier.predict_proba(self.imputer.transform(X))
 
 
+# [TALK & SHOW: Slide 5] Loga o modelo com signature + input_example (schema no MLmodel)
 def _log_model_with_signature(
     model: object, X_sample: pd.DataFrame, y_pred_sample: np.ndarray
 ) -> ModelInfo:
@@ -281,6 +286,7 @@ def _log_model_with_signature(
     )
 
 
+# [TALK & SHOW: Slide 5] Registra no MLflow e move o alias @champion p/ a nova versão
 def _register_with_champion_alias(run_id: str, context: str) -> None:
     """Registra o modelo do run e aponta o alias `champion` para a nova versão.
 
@@ -317,6 +323,7 @@ def _train_standard(data_p: Path) -> None:
     X = df.drop("class", axis=1)
     y = df["class"]
 
+    # [TALK & SHOW: Slide 4] Split estratificado: stratify=y mantém a proporção 0/1
     # stratify=y preserva a proporção 0/1 no holdout — crítico em dataset desbalanceado.
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
@@ -327,6 +334,7 @@ def _train_standard(data_p: Path) -> None:
 
     mlflow.set_experiment("Pima_Diabetes_Pipeline")
 
+    # [TALK & SHOW: Slide 4] Candidatos comparados: Random Forest, Logistic Regression e SVM
     models = {
         "RandomForest": RandomForestClassifier(
             n_estimators=100, max_depth=5, random_state=42

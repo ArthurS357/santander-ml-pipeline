@@ -31,10 +31,12 @@ logger = logging.getLogger("BigDataReport")
 # Features clínicas numéricas monitoradas (dataset Pima).
 FEATURE_COLUMNS = ["preg", "plas", "pres", "skin", "test", "mass", "pedi", "age"]
 
+# [TALK & SHOW: Slide 7] Limiares de PSI: 0.2 (moderado) / 0.25 (alto)
 # Limiares de PSI (convenção de mercado).
 PSI_MODERATE = 0.2  # mudança moderada — investigar
 PSI_HIGH = 0.25  # mudança significativa — ação recomendada
 
+# [TALK & SHOW: Slide 7] Mínimo de inferências p/ report confiável (evita estatística fraca)
 # Mínimo de inferências para um relatório estatisticamente útil.
 _MIN_CURRENT_ROWS = 10
 
@@ -42,6 +44,7 @@ _DEFAULT_REFERENCE = "data/processed/pima_diabetes_processed.csv"
 _DEFAULT_CURRENT = "data/logs/inference_logs.csv"
 
 
+# [TALK & SHOW: Slide 7] PSI: mede drift por feature (distribuição treino × produção)
 def calculate_psi(
     expected: np.typing.ArrayLike,
     actual: np.typing.ArrayLike,
@@ -193,6 +196,7 @@ def _render_markdown(report: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+# [TALK & SHOW: Slide 7] Gera o Data Drift Report (JSON + Markdown) — PSI próprio, sem Evidently
 def generate_data_drift_report(
     reference_path: str | Path | None = None,
     current_path: str | Path | None = None,

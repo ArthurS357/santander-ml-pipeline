@@ -64,6 +64,7 @@ Instrumentator().instrument(app).expose(app)
 # Métricas ML customizadas (registry default → expostas no mesmo /metrics).
 # Permitem monitorar drift de negócio: taxa de positivos e distribuição de
 # confiança das predições, complementando as métricas HTTP do instrumentator.
+# [TALK & SHOW: Slide 7] Métricas ML p/ Prometheus: contador de predições + histograma de confiança
 PREDICTION_COUNTER = Counter(
     "diabetes_predictions_total",
     "Total de predições emitidas, rotuladas por classe.",
@@ -77,6 +78,7 @@ CONFIDENCE_HISTOGRAM = Histogram(
 
 
 # Passo 2: Definir a estrutura dos dados de entrada
+# [TALK & SHOW: Slide 6] Validação forte: extra="forbid" + strict=True + faixas plausíveis → 422
 class PatientData(BaseModel):
     """Features clínicas do paciente (dataset Pima Indians Diabetes).
 
@@ -237,6 +239,7 @@ LOG_FIELDNAMES = [
 ]
 
 
+# [TALK & SHOW: Slide 7] Log de inferência (Big Data) — thread-safe, em background
 def log_prediction(
     input_data: dict[str, float], prediction: int, probability: float
 ) -> None:
@@ -269,6 +272,7 @@ def log_prediction(
 
 
 # Passo 4: Criar o endpoint de predição
+# [TALK & SHOW: Slide 6] Endpoint /predict — inferência + rate limit + log em background
 @app.post("/predict", response_model=PredictionResponse)
 @limiter.limit(PREDICT_RATE_LIMIT)
 def predict(
@@ -344,12 +348,14 @@ def health_check() -> dict[str, object]:
     }
 
 
+# [TALK & SHOW: Slide 6] Liveness: processo vivo (sempre 200)
 @app.get("/health/live")
 def liveness() -> dict[str, str]:
     """Liveness probe: processo respondendo. Sempre 200 enquanto o app estiver vivo."""
     return {"status": "alive"}
 
 
+# [TALK & SHOW: Slide 6] Readiness: 503 se modelo não carregado — bloqueia tráfego (K8s)
 @app.get("/health/ready")
 def readiness() -> dict[str, object]:
     """Readiness probe: 503 se o modelo não estiver carregado — bloqueia tráfego."""
@@ -380,6 +386,7 @@ def require_admin_token(x_admin_token: str | None = Header(default=None)) -> Non
         )
 
 
+# [TALK & SHOW: Slide 6] Reload de modelo protegido por token administrativo (fail-secure)
 @app.post("/admin/reload_model")
 def reload_model(_: None = Depends(require_admin_token)) -> dict[str, object]:
     """Recarrega o modelo após um novo deploy. Protegido por token administrativo."""
