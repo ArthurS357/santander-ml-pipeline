@@ -22,7 +22,11 @@
 
 ---
 
-## 🚀 Novas Funcionalidades (v1.0.4)
+## 🚀 Novas Funcionalidades (v1.0.5)
+
+> **v1.0.5 (manutenção / hardening de CI):** `log_model` fixado em `serialization_format="cloudpickle"` para neutralizar o default **skops** do `mlflow>=3.11`, que bloqueava `numpy.dtype` e quebrava o treino no CI. Inclui também a sincronização didática do roteiro "Talk & Show". Sem mudança de comportamento de runtime — detalhes em [docs/status_report6.md](docs/status_report6.md).
+
+**Funcionalidades introduzidas na v1.0.4:**
 
 - **Modo Big Data Automático:** Transição de Pandas para Dask + SGDClassifier com `partial_fit` para arquivos > 500MB.
 - **Observabilidade Ativa:** Inference Logging em CSV + métricas Prometheus (`/metrics`), incluindo métricas ML customizadas (`diabetes_predictions_total`, `diabetes_prediction_confidence`). **Data Drift próprio via PSI** (Population Stability Index) — implementação leve sem Evidently, gera relatório JSON/MD.
@@ -33,7 +37,7 @@
 
 ## Sumário
 
-- [🚀 Novas Funcionalidades (v1.0.4)](#-novas-funcionalidades-v104)
+- [🚀 Novas Funcionalidades (v1.0.5)](#-novas-funcionalidades-v105)
 - [I. Objetivo do Case](#-i-objetivo-do-case)
 - [II. Arquitetura de Solução](#-ii-arquitetura-de-solução)
 - [III. Plano de Implementação e Reprodução](#-iii-plano-de-implementação-e-reprodução)
@@ -724,7 +728,7 @@ Onde demonstrar cada requisito do case e o comando/evidência correspondente:
 ├── DevSecOps no CI: gitleaks + pip-audit + checkov + trivy + cov-fail-under=85
 ├── Governança documental: Model Card, Data Card e 5 ADRs (docs/)
 ├── Teste de carga (Locust) + relatório de performance (docs/performance.md)
-└── Cobertura de testes 94% (gate de 80% ativo no CI)
+└── Cobertura de testes 95% (gate de 85% ativo no CI)
 
 🔜 Roadmap (próximas iterações)
 ├── Evidently — substituído por PSI próprio nesta versão; reintroduzir se houver release compatível com Python 3.14
@@ -748,7 +752,7 @@ A solução demonstra domínio do **ciclo de vida completo de Machine Learning e
 
 ## 🛡️ Estado de Qualidade e Segurança
 
-> Estado verificado em `2026-06-11` — commit `e1291b4`, Python 3.14.4, runner `ubuntu-latest`.
+> Estado verificado em `2026-06-21` — commit `9184353` (merge do PR #1 `fix/mlflow-skops-serialization`, CI verde), Python 3.14.6, runner `ubuntu-latest`.
 
 ### Gates de CI/CD
 
@@ -760,8 +764,8 @@ A solução demonstra domínio do **ciclo de vida completo de Machine Learning e
 | Linting estático | `flake8` | ✅ PASS |
 | IaC / Manifestos Kubernetes | `checkov` | ✅ PASS — 89 aprovados, 3 suprimidos (PoC), 0 falhas |
 | Segredo embarcado na imagem | `trivy` | ✅ PASS — `ENV ADMIN_RELOAD_TOKEN` removido |
-| Cobertura de testes | `pytest-cov` | ✅ PASS — **94.44%** (gate: ≥ 85%) |
-| Suíte de testes | `pytest` | ✅ PASS — **123 aprovados, 0 falhas** |
+| Cobertura de testes | `pytest-cov` | ✅ PASS — **95%** (691/731 linhas; gate: ≥ 85%) |
+| Suíte de testes | `pytest` | ✅ PASS — **128 aprovados, 0 falhas** |
 
 ### Políticas de Hardening aplicadas
 
